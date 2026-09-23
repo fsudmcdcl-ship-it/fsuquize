@@ -1,0 +1,77 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "students": {
+      ".indexOn": ["phone", "rollNo", "status"],
+      ".read": true,
+      "$studentId": {
+        ".read": true,
+        ".write": "auth != null || !data.exists() || (data.exists() && newData.child('id').val() == $studentId)",
+        ".validate": "newData.hasChildren(['id', 'name', 'rollNo', 'class', 'phone'])"
+      }
+    },
+
+    "quizzes": {
+      ".indexOn": ["status", "createdAt"],
+      ".read": true,
+      ".write": "auth != null",
+      "$quizId": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+
+    "quizSessions": {
+      ".indexOn": ["studentId", "quizId", "score", "submittedAt"],
+      ".read": true,
+      "$sessionId": {
+        ".read": true,
+        ".write": "auth != null || !data.exists() || data.child('completed').val() != true"
+      }
+    },
+
+    "winners": {
+      ".read": true,
+      ".write": "auth != null",
+      "$quizId": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+
+    "tieBreaks": {
+      ".read": true,
+      ".write": "auth != null",
+      "$tieBreakId": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+
+    "settings": {
+      ".read": true,
+      ".write": "auth != null",
+      "portal": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+
+    "auditLogs": {
+      ".indexOn": ["timestamp", "action"],
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "admins": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    }
+  }
+}

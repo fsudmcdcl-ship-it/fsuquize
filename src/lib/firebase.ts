@@ -8,16 +8,21 @@ import {
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  setPersistence,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
   type Auth,
   type User,
 } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
+import { getDatabase, type Database } from "firebase/database";
 
 // Web app's Firebase configuration provided by user
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "quize-c3025.firebaseapp.com",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://quize-c3025-default-rtdb.firebaseio.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "quize-c3025",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "quize-c3025.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "62815879515",
@@ -31,8 +36,17 @@ export const app: FirebaseApp =
 // Initialize Services
 export const auth: Auth = getAuth(app);
 export const firestoreDb: Firestore = getFirestore(app);
+export const realtimeDb: Database = getDatabase(app);
 export const firebaseStorage: FirebaseStorage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
+// Configure modern IndexedDB / local storage persistence so auth does not rely on third-party cookies
+if (typeof window !== "undefined") {
+  setPersistence(auth, indexedDBLocalPersistence).catch(() => {
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
+  });
+}
 
 export const analytics = null;
 
