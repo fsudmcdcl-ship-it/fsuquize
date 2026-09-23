@@ -16,7 +16,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -30,16 +30,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
     }
 
     setIsSubmitting(true);
-    const result = dataService.loginStudent(studentId, passcode);
-    setIsSubmitting(false);
+    try {
+      const result = await dataService.loginStudent(studentId, passcode);
+      setIsSubmitting(false);
 
-    if (!result.success || !result.student) {
-      setError(result.error || 'विद्यार्थी ID वा पासकोड मिलेन।');
-      return;
+      if (!result.success || !result.student) {
+        if (result.technicalError) {
+          console.error('Technical Firebase Login Failure:', result.technicalError);
+        }
+        setError(result.error || 'विद्यार्थी ID वा पासकोड मिलेन।');
+        return;
+      }
+
+      onStudentLoggedIn(result.student);
+      navigate('/dashboard');
+    } catch (err: unknown) {
+      setIsSubmitting(false);
+      console.error('Unhandled login exception:', err);
+      setError('लगइन गर्दा प्राविधिक समस्या आयो। कृपया इन्टरनेट जडान जाँच्नुहोस्।');
     }
-
-    onStudentLoggedIn(result.student);
-    navigate('/dashboard');
   };
 
   return (

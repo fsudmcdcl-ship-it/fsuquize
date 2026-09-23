@@ -21,6 +21,7 @@ export interface Student {
   phone: string;
   username: string; // e.g., FSU25678
   passcode: string; // 4 digits
+  authEmail?: string;
   profilePhoto?: string;
   status: StudentStatus;
   activeSessions?: Record<string, DeviceSession>;

@@ -12,7 +12,15 @@ import type {
   StudentStatus
 } from '../types/quiz';
 import { INITIAL_50_QUESTIONS } from './seedQuestions';
-import { isConfigured, firestoreDb, logoutAdminFromFirebase } from './firebase';
+import {
+  isConfigured,
+  firestoreDb,
+  realtimeDb,
+  logoutAdminFromFirebase,
+  createStudentWithFirebase,
+  loginStudentWithFirebase,
+  formatStudentAuthEmail,
+} from './firebase';
 import { registerDeviceSession, logoutDeviceSession } from './deviceSession';
 import {
   collection,
@@ -22,7 +30,10 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  query,
+  where,
 } from 'firebase/firestore';
+import { ref, get, child, update } from 'firebase/database';
 
 const STORAGE_KEYS = {
   STUDENTS: 'fsudmc_students_v2',
@@ -243,7 +254,7 @@ class DataService {
     return `FSU${cleanRoll}${last3}`;
   }
 
-  registerStudent(params: {
+  async registerStudent(params: {
     name: string;
     rollNo: string;
     class: string;
@@ -251,7 +262,7 @@ class DataService {
     phone: string;
     passcode: string;
     profilePhoto?: string;
-  }): { success: boolean; student?: Student; error?: string } {
+  }): Promise<{ success: boolean; student?: Student; error?: string; technicalError?: string }> {
     const students = this.getStudents();
 
     const rollNoClean = params.rollNo.trim();
@@ -270,7 +281,7 @@ class DataService {
       return { success: false, error: 'सम्पर्क नम्बर १० अंकको हुनुपर्छ।' };
     }
 
-    // Duplicate roll number check
+    // Duplicate roll number check in local memory
     if (students.some(s => s.rollNo.toLowerCase() === rollNoClean.toLowerCase() && s.class.toLowerCase() === params.class.toLowerCase())) {
       return { success: false, error: 'यो रोल नम्बर र कक्षा पहिले नै दर्ता भइसकेको छ।' };
     }
@@ -287,8 +298,22 @@ class DataService {
       return { success: false, error: 'यो विद्यार्थी ID पहिले नै दर्ता छ।' };
     }
 
+    // 1. Create secure account in Firebase Authentication
+    const authResult = await createStudentWithFirebase(studentId, rollNoClean, params.passcode);
+    if (!authResult.success && !authResult.user) {
+      return {
+        success: false,
+        error: authResult.error || 'Firebase Authentication मा खाता सिर्जना हुन सकेन।',
+        technicalError: authResult.technicalError,
+      };
+    }
+
+    const studentAuthUid = authResult.user?.uid;
+    const authEmail = formatStudentAuthEmail(studentId);
+
     const newStudent: Student = {
       id: studentId,
+      ...(studentAuthUid ? { uid: studentAuthUid } : {}),
       name: params.name.trim(),
       rollNo: rollNoClean,
       class: params.class,
@@ -296,40 +321,80 @@ class DataService {
       phone: phoneClean,
       username: studentId,
       passcode: params.passcode,
-      profilePhoto: params.profilePhoto || undefined,
+      authEmail,
+      ...(params.profilePhoto ? { profilePhoto: params.profilePhoto } : {}),
       status: 'active',
       createdAt: new Date().toISOString(),
     };
 
+    // 2. Persist to Firebase Firestore (Awaited with error tracking)
+    const firestoreResult = await this.saveStudentToFirestore(newStudent);
+    if (!firestoreResult.success) {
+      return {
+        success: false,
+        error: firestoreResult.error || 'Firestore मा विद्यार्थी विवरण सुरक्षित गर्न सकिएन।',
+        technicalError: firestoreResult.technicalError,
+      };
+    }
+
+    // 3. Persist to Firebase Realtime Database
+    this.saveStudentToRealtimeDb(newStudent).catch(err => {
+      console.warn('Realtime Database background sync warning:', err);
+    });
+
+    // 4. Update local storage and cache
     students.push(newStudent);
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
 
     // Auto log-in student
     this.setCurrentStudent(newStudent);
-
-    // Persist to Firebase Firestore asynchronously
-    this.saveStudentToFirestore(newStudent).catch(err => {
-      console.warn('Backend student persistence error:', err);
-    });
+    this.notifyListeners();
 
     return { success: true, student: newStudent };
   }
 
-  loginStudent(studentIdOrUsername: string, passcode: string): { success: boolean; student?: Student; error?: string } {
-    const students = this.getStudents();
-    const query = studentIdOrUsername.trim().toUpperCase();
-    const cleanPhone = studentIdOrUsername.trim();
+  async loginStudent(
+    studentIdOrUsername: string,
+    passcode: string
+  ): Promise<{ success: boolean; student?: Student; error?: string; technicalError?: string }> {
+    const queryStr = studentIdOrUsername.trim();
+    const queryUpper = queryStr.toUpperCase();
+    const cleanPass = passcode.trim();
 
-    // Check by id, username, phone, or roll number
-    const student = students.find(s =>
-      s.id.toUpperCase() === query ||
-      s.username.toUpperCase() === query ||
-      s.phone === cleanPhone ||
-      s.rollNo.toUpperCase() === query
+    if (!queryStr) {
+      return { success: false, error: 'कृपया आफ्नो विद्यार्थी ID, फोन वा रोल नम्बर प्रविष्ट गर्नुहोस्।' };
+    }
+    if (!cleanPass) {
+      return { success: false, error: 'कृपया ४ अंकको पासकोड प्रविष्ट गर्नुहोस्।' };
+    }
+
+    // 1. Check local memory / localStorage first
+    let student = this.getStudents().find(s =>
+      s.id.toUpperCase() === queryUpper ||
+      s.username.toUpperCase() === queryUpper ||
+      s.phone === queryStr ||
+      s.rollNo.toUpperCase() === queryUpper
     );
 
+    // 2. If not found in local cache, query Firestore & Realtime Database
     if (!student) {
-      return { success: false, error: 'विद्यार्थी ID, फोन वा रोल नम्बर फेला परेन। कृपया पहिले नयाँ खाता दर्ता गर्नुहोस्।' };
+      const remoteStudent = await this.getStudentFromFirebase(queryStr);
+      if (remoteStudent) {
+        student = remoteStudent;
+        const currentList = this.getStudents();
+        if (!currentList.some(s => s.id === remoteStudent.id)) {
+          currentList.push(remoteStudent);
+          this.setStorage(STORAGE_KEYS.STUDENTS, currentList);
+        }
+      }
+    }
+
+    if (!student) {
+      return {
+        success: false,
+        error: 'विद्यार्थी ID, फोन वा रोल नम्बर फेला परेन। कृपया पहिले नयाँ खाता दर्ता गर्नुहोस्।',
+        technicalError: `not-found: student '${queryStr}' not present in local cache or Firestore`
+      };
     }
 
     if (student.status === 'blocked') {
@@ -340,16 +405,29 @@ class DataService {
       return { success: false, error: 'तपाईंको विद्यार्थी खाता हाल निलम्बित गरिएको छ। सहायताका लागि प्रशासनलाई सम्पर्क गर्नुहोस्।' };
     }
 
-    if (student.passcode !== passcode.trim()) {
-      return { success: false, error: 'प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन।' };
+    // 3. Authenticate via Firebase Authentication
+    const fbAuthResult = await loginStudentWithFirebase(student.id, student.rollNo, cleanPass);
+    if (!fbAuthResult.success) {
+      // If student was created before Firebase Auth was integrated, verify against stored passcode
+      if (student.passcode === cleanPass) {
+        // Backfill their account in Firebase Authentication seamlessly
+        createStudentWithFirebase(student.id, student.rollNo, cleanPass).catch(() => {});
+      } else {
+        return {
+          success: false,
+          error: fbAuthResult.error || 'प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन।',
+          technicalError: fbAuthResult.technicalError
+        };
+      }
     }
 
-    // Register active device session asynchronously
+    // 4. Register active device session asynchronously
     registerDeviceSession(student.id).catch(err => {
       console.debug('Notice: Device session registration background:', err);
     });
 
     this.setCurrentStudent(student);
+    this.notifyListeners();
     return { success: true, student };
   }
 
@@ -462,14 +540,115 @@ class DataService {
     return true;
   }
 
-  // =================== FIRESTORE PERSISTENCE METHODS ===================
+  // =================== FIRESTORE & FIREBASE PERSISTENCE METHODS ===================
 
-  async saveStudentToFirestore(student: Student): Promise<void> {
+  async saveStudentToFirestore(
+    student: Student
+  ): Promise<{ success: boolean; error?: string; technicalError?: string }> {
     try {
-      await setDoc(doc(firestoreDb, 'students', student.id), student, { merge: true });
-    } catch (err) {
-      console.warn('Error persisting student to Firestore:', err);
+      // Strip any undefined keys so Firestore doesn't reject the payload
+      const sanitized: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(student)) {
+        if (v !== undefined) {
+          sanitized[k] = v;
+        }
+      }
+      await setDoc(doc(firestoreDb, 'students', student.id), sanitized, { merge: true });
+      return { success: true };
+    } catch (err: unknown) {
+      const fbError = err as { code?: string; message?: string };
+      const code = fbError?.code || 'unknown';
+      const msg = fbError?.message || 'Firestore setDoc operation failed';
+      console.error(`Firestore saveStudent error [${code}]:`, msg, err);
+      return {
+        success: false,
+        error: 'डाटाबेसमा विद्यार्थी विवरण सुरक्षित गर्न सकिएन।',
+        technicalError: `${code}: ${msg}`,
+      };
     }
+  }
+
+  async saveStudentToRealtimeDb(student: Student): Promise<{ success: boolean; error?: string }> {
+    try {
+      const studentRef = ref(realtimeDb, `students/${student.id}`);
+      await update(studentRef, {
+        id: student.id,
+        name: student.name,
+        rollNo: student.rollNo,
+        class: student.class,
+        semester: student.semester,
+        phone: student.phone,
+        username: student.username,
+        status: student.status,
+        createdAt: student.createdAt,
+      });
+      return { success: true };
+    } catch (err: unknown) {
+      const fbError = err as { code?: string; message?: string };
+      console.warn('Realtime Database student sync warning:', fbError?.code, fbError?.message);
+      return { success: false, error: fbError?.message };
+    }
+  }
+
+  async getStudentFromFirebase(studentIdOrIdentifier: string): Promise<Student | null> {
+    const raw = studentIdOrIdentifier.trim();
+    if (!raw) return null;
+    const queryUpper = raw.toUpperCase();
+
+    // 1. Check direct doc by student ID in Firestore
+    try {
+      const docSnap = await getDoc(doc(firestoreDb, 'students', queryUpper));
+      if (docSnap.exists()) {
+        return docSnap.data() as Student;
+      }
+    } catch (err) {
+      console.warn('Firestore doc fetch notice:', err);
+    }
+
+    // 2. Query Firestore by phone
+    try {
+      const qPhone = query(collection(firestoreDb, 'students'), where('phone', '==', raw));
+      const snapPhone = await getDocs(qPhone);
+      if (!snapPhone.empty) {
+        return snapPhone.docs[0].data() as Student;
+      }
+    } catch (err) {
+      console.warn('Firestore query by phone notice:', err);
+    }
+
+    // 3. Query Firestore by rollNo
+    try {
+      const qRoll = query(collection(firestoreDb, 'students'), where('rollNo', '==', raw));
+      const snapRoll = await getDocs(qRoll);
+      if (!snapRoll.empty) {
+        return snapRoll.docs[0].data() as Student;
+      }
+    } catch (err) {
+      console.warn('Firestore query by roll notice:', err);
+    }
+
+    // 4. Query Firestore by username
+    try {
+      const qUser = query(collection(firestoreDb, 'students'), where('username', '==', queryUpper));
+      const snapUser = await getDocs(qUser);
+      if (!snapUser.empty) {
+        return snapUser.docs[0].data() as Student;
+      }
+    } catch (err) {
+      console.warn('Firestore query by username notice:', err);
+    }
+
+    // 5. Fallback check from Realtime Database
+    try {
+      const rtdbSnap = await get(child(ref(realtimeDb), `students/${queryUpper}`));
+      if (rtdbSnap.exists()) {
+        return rtdbSnap.val() as Student;
+      }
+    } catch (err) {
+      console.warn('Realtime Database fallback notice:', err);
+    }
+
+    return null;
   }
 
   async updateStudentInFirestore(studentId: string, updates: Partial<Student>): Promise<void> {

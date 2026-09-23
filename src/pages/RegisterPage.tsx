@@ -91,7 +91,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
     setPhotoError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -122,25 +122,34 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
 
     setIsSubmitting(true);
 
-    const result = dataService.registerStudent({
-      name: name.trim(),
-      rollNo: rollNo.trim(),
-      class: studentClass,
-      semester,
-      phone: phone.trim(),
-      passcode: passcode.trim(),
-      profilePhoto: profilePhoto || undefined,
-    });
+    try {
+      const result = await dataService.registerStudent({
+        name: name.trim(),
+        rollNo: rollNo.trim(),
+        class: studentClass,
+        semester,
+        phone: phone.trim(),
+        passcode: passcode.trim(),
+        profilePhoto: profilePhoto || undefined,
+      });
 
-    setIsSubmitting(false);
+      setIsSubmitting(false);
 
-    if (!result.success || !result.student) {
-      setError(result.error || 'दर्ता गर्दा समस्या देखियो। कृपया पुनः प्रयास गर्नुहोस्।');
-      return;
+      if (!result.success || !result.student) {
+        if (result.technicalError) {
+          console.error('Technical Firebase Registration Failure:', result.technicalError);
+        }
+        setError(result.error || 'दर्ता गर्दा समस्या देखियो। कृपया पुनः प्रयास गर्नुहोस्।');
+        return;
+      }
+
+      setRegistrationSuccess(result.student);
+      onStudentRegistered(result.student);
+    } catch (err: unknown) {
+      setIsSubmitting(false);
+      console.error('Unhandled registration exception:', err);
+      setError('दर्ता प्रक्रियामा अप्रत्याशित त्रुटि आयो। कृपया इन्टरनेट जडान जाँच गर्नुहोस्।');
     }
-
-    setRegistrationSuccess(result.student);
-    onStudentRegistered(result.student);
   };
 
   if (registrationSuccess) {

@@ -8,14 +8,12 @@
       ".read": true,
       "$studentId": {
         ".read": true,
-        ".write": "auth != null || !data.exists() || (data.exists() && newData.child('id').val() == $studentId)",
-        ".validate": "newData.hasChildren(['id', 'name', 'rollNo', 'class', 'phone'])",
+        ".write": true,
         "activeSessions": {
           ".read": true,
           "$deviceId": {
             ".read": true,
-            ".write": true,
-            ".validate": "newData.hasChildren(['deviceId', 'lastActive'])"
+            ".write": true
           }
         }
       }

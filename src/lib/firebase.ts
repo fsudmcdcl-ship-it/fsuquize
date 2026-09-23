@@ -49,6 +49,7 @@ try {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager(),
     }),
+    ignoreUndefinedProperties: true,
   });
 } catch {
   // Fallback to getFirestore if already initialized or in unsupported environment
@@ -174,6 +175,125 @@ export async function logoutAdminFromFirebase(): Promise<void> {
     await signOut(auth);
   } catch (err) {
     console.error("Firebase logout error:", err);
+  }
+}
+
+// =================== STUDENT FIREBASE AUTHENTICATION ===================
+// Isolated secondary Auth instance to prevent student registration/login from evicting active admin sessions
+const studentAuthApp: FirebaseApp =
+  getApps().find(a => a.name === "StudentAuth") ||
+  initializeApp(firebaseConfig, "StudentAuth");
+
+export const studentAuth: Auth = getAuth(studentAuthApp);
+
+if (typeof window !== "undefined") {
+  setPersistence(studentAuth, indexedDBLocalPersistence).catch(() => {
+    setPersistence(studentAuth, browserLocalPersistence).catch(() => {});
+  });
+}
+
+/**
+ * Standardize student login identifier into Firebase Auth compatible email format
+ */
+export function formatStudentAuthEmail(studentId: string): string {
+  const clean = studentId.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return `student_${clean}@student.fsudmc.edu.np`;
+}
+
+/**
+ * Hash/expand 4-digit PIN into a secure >=6 character Firebase Auth password
+ */
+export function formatStudentAuthPassword(passcode: string, rollNo: string): string {
+  const cleanRoll = rollNo.trim().replace(/[^a-zA-Z0-9]/g, "") || "std";
+  return `Fsu#${passcode}*${cleanRoll}`;
+}
+
+/**
+ * Register student account in Firebase Authentication
+ */
+export async function createStudentWithFirebase(
+  studentId: string,
+  rollNo: string,
+  passcode: string
+): Promise<{ success: boolean; user?: User; error?: string; technicalError?: string }> {
+  const email = formatStudentAuthEmail(studentId);
+  const password = formatStudentAuthPassword(passcode, rollNo);
+
+  try {
+    const cred = await createUserWithEmailAndPassword(studentAuth, email, password);
+    return { success: true, user: cred.user };
+  } catch (err: unknown) {
+    const fbError = err as { code?: string; message?: string };
+    const code = fbError.code || "unknown";
+    const msg = fbError.message || "Failed to create Firebase Auth user";
+    console.error(`Firebase Auth createStudent error [${code}]:`, msg);
+
+    let errorMsg = "Firebase खाता सिर्जना असफल भयो।";
+    if (code === "auth/email-already-in-use") {
+      // Account exists in Auth, try sign in with same credentials
+      try {
+        const signinCred = await signInWithEmailAndPassword(studentAuth, email, password);
+        return { success: true, user: signinCred.user };
+      } catch (signInErr) {
+        console.warn("Student account already exists in Auth but signin failed:", signInErr);
+        errorMsg = "यो विद्यार्थी ID पहिले नै दर्ता भइसकेको छ। कृपया सिधै लगइन गर्नुहोस्।";
+      }
+    } else if (code === "auth/weak-password") {
+      errorMsg = "पासवर्ड कम्तिमा ६ अक्षरको हुनुपर्छ।";
+    } else if (code === "auth/network-request-failed") {
+      errorMsg = "इन्टरनेट वा नेटवर्क जडानमा समस्या आयो।";
+    } else if (code === "auth/operation-not-allowed") {
+      errorMsg = "Firebase Console मा Email/Password लगइन विधि सुरु गरिएको छैन।";
+    } else if (msg) {
+      errorMsg = msg;
+    }
+
+    return {
+      success: false,
+      error: errorMsg,
+      technicalError: `${code}: ${msg}`
+    };
+  }
+}
+
+/**
+ * Log in student using Firebase Authentication
+ */
+export async function loginStudentWithFirebase(
+  studentId: string,
+  rollNo: string,
+  passcode: string
+): Promise<{ success: boolean; user?: User; error?: string; technicalError?: string }> {
+  const email = formatStudentAuthEmail(studentId);
+  const password = formatStudentAuthPassword(passcode, rollNo);
+
+  try {
+    const cred = await signInWithEmailAndPassword(studentAuth, email, password);
+    return { success: true, user: cred.user };
+  } catch (err: unknown) {
+    const fbError = err as { code?: string; message?: string };
+    const code = fbError.code || "unknown";
+    const msg = fbError.message || "Firebase Auth sign-in failed";
+    console.error(`Firebase Auth loginStudent error [${code}]:`, msg);
+
+    let errorMsg = "Firebase लगइन असफल भयो।";
+    if (code === "auth/invalid-credential" || code === "auth/wrong-password") {
+      errorMsg = "प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन।";
+    } else if (code === "auth/user-not-found") {
+      errorMsg = "यो विद्यार्थी ID Firebase मा दर्ता गरिएको छैन।";
+    } else if (code === "auth/too-many-requests") {
+      errorMsg = "धेरै पटक गलत प्रयास गरिएको छ। केही समयपछि पुन: प्रयास गर्नुहोस्।";
+    } else if (code === "auth/network-request-failed") {
+      errorMsg = "इन्टरनेट वा सर्भर जडानमा समस्या आयो। कृपया इन्टरनेट जाँच्नुहोस्।";
+    } else if (msg) {
+      errorMsg = msg;
+    }
+
+    return {
+      success: false,
+      error: errorMsg,
+      technicalError: `${code}: ${msg}`
+    };
   }
 }
 
