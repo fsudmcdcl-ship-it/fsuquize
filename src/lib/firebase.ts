@@ -17,12 +17,12 @@ import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 // Web app's Firebase configuration provided by user
 export const firebaseConfig = {
-  apiKey: "AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o",
-  authDomain: "quize-c3025.firebaseapp.com",
-  projectId: "quize-c3025",
-  storageBucket: "quize-c3025.firebasestorage.app",
-  messagingSenderId: "62815879515",
-  appId: "1:62815879515:web:8de7b15748cf6ff22a9a7e",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "quize-c3025.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "quize-c3025",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "quize-c3025.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "62815879515",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:62815879515:web:8de7b15748cf6ff22a9a7e",
   measurementId: "G-XHX6RBHH12",
 };
 
