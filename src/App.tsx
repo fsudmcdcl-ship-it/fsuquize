@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { dataService } from './lib/dataService';
+import { auth, onAuthStateChanged } from './lib/firebase';
 import type { Student, AdminUser, Quiz, QuizSession, WinnerRecord, Question, AuditLog } from './types/quiz';
 
 // Student Portal Components & Pages
@@ -81,6 +82,20 @@ export default function App() {
 
   useEffect(() => {
     refreshData();
+
+    // Listen to Firebase Auth state for admin user
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        const admin = dataService.setAdminFromFirebase({
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName,
+        });
+        setCurrentAdmin(admin);
+      }
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
   // Listen to popstate
@@ -114,7 +129,7 @@ export default function App() {
     navigate('/');
   };
 
-  const adminSlug = dataService.getAdminSlug();
+  const adminSlug = dataService.getAdminSlug() || 'quizemasteradmin';
   const adminPrefix = `/${adminSlug}`;
 
   const handleAdminLogout = () => {
@@ -133,8 +148,12 @@ export default function App() {
     ? allSessions.filter(s => s.studentId === currentStudent.id)
     : [];
 
-  // Route parser - Secret Admin slug matching
-  const isAdminRoute = currentPath === adminPrefix || currentPath.startsWith(`${adminPrefix}/`);
+  // Route parser - Secret Admin slug matching (specifically quize.fsudmc.com/quizemasteradmin)
+  const isAdminRoute =
+    currentPath === adminPrefix ||
+    currentPath.startsWith(`${adminPrefix}/`) ||
+    currentPath === '/quizemasteradmin' ||
+    currentPath.startsWith('/quizemasteradmin/');
 
   // Admin routes handling
   if (isAdminRoute) {

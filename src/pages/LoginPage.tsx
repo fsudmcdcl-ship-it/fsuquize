@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { dataService } from '../lib/dataService';
 import type { Student } from '../types/quiz';
-import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff, ShieldCheck, HelpCircle } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff, ShieldCheck, HelpCircle, UserPlus } from 'lucide-react';
 
 interface LoginPageProps {
   navigate: (path: string) => void;
@@ -132,37 +132,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
             <ArrowRight className="w-4 h-4" />
           </button>
 
-          {/* Registration Link */}
-          <div className="pt-4 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-500">
-              खाता छैन?{' '}
+          {/* Inside Login: Prominent Register Option */}
+          <div className="pt-5 border-t border-slate-100">
+            <div className="bg-gradient-to-br from-rose-50 to-red-50/60 rounded-2xl p-4 border border-rose-200/80 text-center space-y-2.5">
+              <span className="text-xs font-bold text-slate-800 block">
+                नयाँ विद्यार्थी हुनुहुन्छ? (Not Registered Yet?)
+              </span>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                साप्ताहिक हाजिरी जवाफ प्रतियोगितामा सहभागी हुन पहिले क्याम्पस विद्यार्थी दर्ता गर्नुहोस्।
+              </p>
               <button
                 type="button"
                 onClick={() => navigate('/register')}
-                className="font-bold text-red-600 hover:underline"
+                className="w-full py-2.5 px-4 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
               >
-                नयाँ विद्यार्थी दर्ता गर्नुहोस्
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>नयाँ विद्यार्थी दर्ता गर्नुहोस् (Register Now)</span>
               </button>
-            </p>
+            </div>
           </div>
         </form>
-
-        {/* Demo Credentials Quick-Filler for testing */}
-        <div className="mt-6 pt-4 border-t border-slate-100 bg-slate-50 rounded-2xl p-3.5 text-xs text-slate-500 space-y-1.5">
-          <span className="font-bold text-slate-700 block">परीक्षण लगइन (Sample Student):</span>
-          <div className="flex items-center justify-between font-mono bg-white p-2 rounded-lg border border-slate-200">
-            <span>ID: <b className="text-slate-800">FSU25678</b> | PIN: <b className="text-slate-800">1234</b></span>
-            <button
-              onClick={() => {
-                setStudentId('FSU25678');
-                setPasscode('1234');
-              }}
-              className="text-red-600 font-bold text-[11px] hover:underline"
-            >
-              स्वतः भर्नुहोस्
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* Help Modal */}
@@ -177,13 +166,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
               यदि तपाईंले आफ्नो ४ अंकको पासकोड बिर्सनुभयो वा विद्यार्थी ID हराउनुभयो भने आफ्नो परिचयपत्र (क्याम्पस कार्ड) सहित स्ववियु (FSU) सचिवालय वा क्विज मास्टरसँग सम्पर्क गर्नुहोस्।
             </p>
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
-              <p><b>सम्पर्क:</b> FSU DMC सचिवालय</p>
-              <p><b>इमेल:</b> fsu@fsudmc.com</p>
-              <p><b>फोन:</b> ९८००००००००</p>
+              <p><b>सम्पर्क:</b> FSU दार्चुला बहुमुखी क्याम्पस सचिवालय</p>
+              <p><b>इमेल:</b> info@fsudmc.com</p>
+              <p><b>फोन:</b> ९७४१८२३१२२</p>
             </div>
             <button
               onClick={() => setHelpModalOpen(false)}
-              className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition"
+              className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition cursor-pointer"
             >
               बुझें (बन्द गर्नुहोस्)
             </button>

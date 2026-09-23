@@ -1,76 +1,150 @@
-import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
-import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
-import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
+import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  type Auth,
+  type User,
+} from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
-export interface FirebaseClientConfig {
-  apiKey: string;
-  authDomain: string;
-  projectId: string;
-  storageBucket: string;
-  messagingSenderId: string;
-  appId: string;
-  databaseURL?: string;
-}
+// Web app's Firebase configuration provided by user
+export const firebaseConfig = {
+  apiKey: "AIzaSyCSbIo5RUS0OZ_-sGuSjFHOy5P7knYWPeY",
+  authDomain: "fsu-bdbf6.firebaseapp.com",
+  databaseURL: "https://fsu-bdbf6-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "fsu-bdbf6",
+  storageBucket: "fsu-bdbf6.firebasestorage.app",
+  messagingSenderId: "214528113668",
+  appId: "1:214528113668:web:f2b8b65cab72c444454951",
+  measurementId: "G-X4FJ0Z8CE6",
+};
 
-// Retrieve from Vite environment or localStorage override
-function getActiveFirebaseConfig(): FirebaseClientConfig | null {
-  const env = import.meta.env;
-  if (env.VITE_FIREBASE_API_KEY && env.VITE_FIREBASE_PROJECT_ID) {
-    return {
-      apiKey: env.VITE_FIREBASE_API_KEY,
-      authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || `${env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
-      projectId: env.VITE_FIREBASE_PROJECT_ID,
-      storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || `${env.VITE_FIREBASE_PROJECT_ID}.appspot.com`,
-      messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-      appId: env.VITE_FIREBASE_APP_ID || '',
-      databaseURL: env.VITE_FIREBASE_DATABASE_URL
-    };
-  }
+// Initialize Firebase
+export const app: FirebaseApp =
+  getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-  // Check if admin manually saved config in localStorage
-  try {
-    const custom = localStorage.getItem('fsudmc_firebase_config');
-    if (custom) {
-      const parsed = JSON.parse(custom);
-      if (parsed.apiKey && parsed.projectId) {
-        return parsed;
+// Initialize Services
+export const auth: Auth = getAuth(app);
+export const firestoreDb: Firestore = getFirestore(app);
+export const firebaseStorage: FirebaseStorage = getStorage(app);
+export const googleProvider = new GoogleAuthProvider();
+
+export let analytics: Analytics | null = null;
+if (typeof window !== "undefined") {
+  isSupported()
+    .then((supported) => {
+      if (supported) {
+        analytics = getAnalytics(app);
       }
-    }
-  } catch {
-    // Ignore JSON errors
-  }
-
-  return null;
+    })
+    .catch(() => {
+      // Ignore analytics unsupported environment (e.g. headless/ssr)
+    });
 }
 
-let firebaseApp: FirebaseApp | null = null;
-let firebaseAuth: Auth | null = null;
-let firestoreDb: Firestore | null = null;
-let firebaseStorage: FirebaseStorage | null = null;
+export const isConfigured = true;
+export const config = firebaseConfig;
 
-export const config = getActiveFirebaseConfig();
-export const isConfigured = Boolean(config && config.apiKey && !config.apiKey.includes('AIzaSy...'));
-
-if (isConfigured && config) {
+// Export Firebase Auth helpers specifically for Admin authentication
+export async function loginAdminWithFirebase(email: string, pass: string): Promise<{ success: boolean; user?: User; error?: string }> {
   try {
-    firebaseApp = getApps().length === 0 ? initializeApp(config) : getApps()[0];
-    firebaseAuth = getAuth(firebaseApp);
-    firestoreDb = getFirestore(firebaseApp);
-    firebaseStorage = getStorage(firebaseApp);
-  } catch (err) {
-    console.warn('Firebase initialization notice:', err);
+    const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
+    return { success: true, user: cred.user };
+  } catch (err: unknown) {
+    const fbError = err as { code?: string; message?: string };
+    let errorMsg = "Firebase लगइन असफल भयो।";
+    if (fbError.code === "auth/invalid-credential" || fbError.code === "auth/wrong-password") {
+      errorMsg = "इमेल वा पासवर्ड मिलेन। कृपया जाँच गर्नुहोस्।";
+    } else if (fbError.code === "auth/user-not-found") {
+      errorMsg = "यो इमेल Firebase मा दर्ता गरिएको छैन।";
+    } else if (fbError.code === "auth/invalid-email") {
+      errorMsg = "अमान्य इमेल ठेगाना प्रविष्ट गरियो।";
+    } else if (fbError.code === "auth/too-many-requests") {
+      errorMsg = "धेरै पटक प्रयास गरिएको छ। केही समयपछि पुन: प्रयास गर्नुहोस्।";
+    } else if (fbError.code === "auth/network-request-failed") {
+      errorMsg = "इन्टरनेट वा नेटवर्क जडानमा समस्या आयो।";
+    } else if (fbError.code === "auth/operation-not-allowed") {
+      errorMsg = "Firebase Console मा Email/Password लगइन विधि सुरु (Enable) गरिएको छैन।";
+    } else if (fbError.message) {
+      errorMsg = fbError.message;
+    }
+    return { success: false, error: errorMsg };
   }
 }
 
-export { firebaseApp, firebaseAuth, firestoreDb, firebaseStorage };
+export async function createAdminWithFirebase(email: string, pass: string): Promise<{ success: boolean; user?: User; error?: string }> {
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+    return { success: true, user: cred.user };
+  } catch (err: unknown) {
+    const fbError = err as { code?: string; message?: string };
+    let errorMsg = "खाता सिर्जना असफल भयो।";
+    if (fbError.code === "auth/email-already-in-use") {
+      errorMsg = "यो इमेल पहिले नै दर्ता भइसकेको छ। कृपया सिधै लगइन गर्नुहोस्।";
+    } else if (fbError.code === "auth/weak-password") {
+      errorMsg = "पासवर्ड कम्तिमा ६ अक्षर वा अंकको हुनुपर्छ।";
+    } else if (fbError.code === "auth/invalid-email") {
+      errorMsg = "अमान्य इमेल ठेगाना।";
+    } else if (fbError.code === "auth/operation-not-allowed") {
+      errorMsg = "Firebase Console मा Email/Password प्रदायक अन गर्नुहोस्।";
+    } else if (fbError.message) {
+      errorMsg = fbError.message;
+    }
+    return { success: false, error: errorMsg };
+  }
+}
 
-export function saveManualFirebaseConfig(newConfig: FirebaseClientConfig) {
-  localStorage.setItem('fsudmc_firebase_config', JSON.stringify(newConfig));
+export async function loginAdminWithGoogle(): Promise<{ success: boolean; user?: User; error?: string }> {
+  try {
+    const cred = await signInWithPopup(auth, googleProvider);
+    return { success: true, user: cred.user };
+  } catch (err: unknown) {
+    const fbError = err as { code?: string; message?: string };
+    let errorMsg = "Google लगइन असफल भयो।";
+    if (fbError.code === "auth/popup-closed-by-user") {
+      errorMsg = "Google प्रमाणीकरण विन्डो बन्द गरियो।";
+    } else if (fbError.code === "auth/cancelled-popup-request") {
+      errorMsg = "पप-अप अनुरोध रद्द गरियो।";
+    } else if (fbError.code === "auth/popup-blocked") {
+      errorMsg = "ब्राउजरले पप-अप रोक्यो, कृपया पप-अप खुला गर्नुहोस्।";
+    } else if (fbError.message) {
+      errorMsg = fbError.message;
+    }
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function logoutAdminFromFirebase(): Promise<void> {
+  try {
+    await signOut(auth);
+  } catch (err) {
+    console.error("Firebase logout error:", err);
+  }
+}
+
+export function saveManualFirebaseConfig(_newConfig: typeof firebaseConfig) {
+  // Config is permanently embedded in project
   window.location.reload();
 }
 
 export function clearManualFirebaseConfig() {
-  localStorage.removeItem('fsudmc_firebase_config');
   window.location.reload();
 }
+
+export {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+};
+export type { User };

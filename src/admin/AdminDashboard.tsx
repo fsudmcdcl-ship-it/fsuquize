@@ -47,13 +47,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Quick Action Shortcuts */}
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => navigate('/quizemaster/questions')}
+            onClick={() => navigate(`/${adminSlug}/questions`)}
             className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
           >
             <span>+ प्रश्न बैङ्क</span>
           </button>
           <button
-            onClick={() => navigate('/quizemaster/reports')}
+            onClick={() => navigate(`/${adminSlug}/reports`)}
             className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />

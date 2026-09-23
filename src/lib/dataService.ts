@@ -11,7 +11,7 @@ import type {
   QuestionOption
 } from '../types/quiz';
 import { INITIAL_50_QUESTIONS } from './seedQuestions';
-import { isConfigured, firestoreDb } from './firebase';
+import { isConfigured, firestoreDb, logoutAdminFromFirebase } from './firebase';
 
 const STORAGE_KEYS = {
   STUDENTS: 'fsudmc_students_v2',
@@ -37,7 +37,7 @@ const DEFAULT_SETTINGS: PortalSettings = {
   questionBankSize: 50,
   allowPublicPhotos: true,
   contactSupport: '९७४१८२३१२२ / info@fsudmc.com',
-  adminSlug: 'fsu-dmc-master-x891',
+  adminSlug: 'quizemasteradmin',
 };
 
 // Seed an initial active quiz set to 72 hours availability
@@ -137,6 +137,24 @@ class DataService {
 
   logoutAdmin(): void {
     this.setCurrentAdmin(null);
+    logoutAdminFromFirebase().catch(() => {});
+  }
+
+  setAdminFromFirebase(firebaseUser: { uid: string; email: string | null; displayName: string | null }): AdminUser {
+    const admin: AdminUser = {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email || 'info@fsudmc.com',
+      name: firebaseUser.displayName || 'क्विज मास्टर (दार्चुला बहुमुखी क्याम्पस)',
+      role: 'admin'
+    };
+    this.setCurrentAdmin(admin);
+    this.addAuditLog({
+      adminEmail: admin.email,
+      action: 'प्रशासक लगइन',
+      target: 'Firebase Auth',
+      details: `Firebase प्रमाणीकरण सफल: ${admin.email}`
+    });
+    return admin;
   }
 
   // =================== STUDENTS ===================
@@ -696,19 +714,23 @@ class DataService {
 
   getSettings(): PortalSettings {
     const s = this.getStorage<PortalSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
-    if (!s.adminSlug) {
-      s.adminSlug = 'fsu-dmc-master-x891';
+    if (!s.adminSlug || s.adminSlug === 'fsu-dmc-master-x891') {
+      s.adminSlug = 'quizemasteradmin';
       this.setStorage(STORAGE_KEYS.SETTINGS, s);
     }
     return s;
   }
 
   getAdminSlug(): string {
-    return this.getSettings().adminSlug || 'fsu-dmc-master-x891';
+    const slug = this.getSettings().adminSlug;
+    if (!slug || slug === 'fsu-dmc-master-x891') {
+      return 'quizemasteradmin';
+    }
+    return slug;
   }
 
   updateAdminSlug(newSlug: string, adminEmail = 'admin'): string {
-    const cleanSlug = newSlug.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-') || 'fsu-dmc-master-x891';
+    const cleanSlug = newSlug.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-') || 'quizemasteradmin';
     const settings = this.getSettings();
     settings.adminSlug = cleanSlug;
     this.saveSettings(settings, adminEmail);

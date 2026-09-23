@@ -38,8 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
         { label: 'गृहपृष्ठ', path: '/', icon: Award },
         { label: 'आजको क्विज', path: '/todays-quize', icon: BookOpen },
         { label: 'विजेता सूची', path: '/winner-list', icon: Trophy },
-        { label: 'लगइन', path: '/login', icon: User },
-        { label: 'दर्ता', path: '/register', icon: CheckCircle, highlight: true },
+        { label: 'लगइन', path: '/login', icon: User, highlight: true },
       ];
 
   const handleNav = (path: string) => {

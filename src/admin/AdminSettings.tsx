@@ -15,7 +15,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
   const [durationMinutes, setDurationMinutes] = useState(currentSettings.quizDurationMinutes);
   const [availabilityHours, setAvailabilityHours] = useState(currentSettings.quizAvailabilityHours);
   const [contactSupport, setContactSupport] = useState(currentSettings.contactSupport);
-  const [adminSlug, setAdminSlug] = useState(currentSettings.adminSlug || 'fsu-dmc-master-x891');
+  const [adminSlug, setAdminSlug] = useState(currentSettings.adminSlug || 'quizemasteradmin');
   const [slugSavedNotice, setSlugSavedNotice] = useState(false);
   const [copiedUrlNotice, setCopiedUrlNotice] = useState(false);
   const [saveNotice, setSaveNotice] = useState(false);
@@ -247,7 +247,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
                 value={adminSlug}
                 onChange={e => setAdminSlug(e.target.value)}
                 className="w-full pl-36 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold text-slate-900"
-                placeholder="fsu-dmc-master-x891"
+                placeholder="quizemasteradmin"
               />
             </div>
             <button
