@@ -30,11 +30,20 @@ import { AdminWinners } from './admin/AdminWinners';
 import { AdminReports } from './admin/AdminReports';
 import { AdminSettings } from './admin/AdminSettings';
 
-// Helper to determine the normalized route regardless of GitHub Pages base path or custom domain
+// Helper to determine the normalized route regardless of GitHub Pages base path, subpath, or custom domain
 function parseCurrentRoute(): string {
   if (typeof window === 'undefined') return '/';
 
-  // 1. Check if redirected from GitHub Pages 404.html (e.g. ?p=/login or ?p=/quizemasteradmin)
+  // 1. Check if redirected from GitHub Pages 404.html via ?/ (e.g. ?/quizemasteradmin or ?/login)
+  if (window.location.search.startsWith('?/')) {
+    const raw = window.location.search.slice(2).split('&')[0];
+    const decoded = decodeURIComponent(raw.replace(/~and~/g, '&'));
+    const cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState(null, '', cleanUrl);
+    return decoded.startsWith('/') ? decoded : `/${decoded}`;
+  }
+
+  // 2. Check if redirected from GitHub Pages 404.html via ?p= or ?path=
   const searchParams = new URLSearchParams(window.location.search);
   const redirectParam = searchParams.get('p') || searchParams.get('path');
   if (redirectParam) {
@@ -43,14 +52,21 @@ function parseCurrentRoute(): string {
     return redirectParam.startsWith('/') ? redirectParam : `/${redirectParam}`;
   }
 
-  // 2. Check hash route (e.g. #/login, #/quizemasteradmin)
+  // 3. Check hash route (e.g. #/login, #/quizemasteradmin)
   const hash = window.location.hash.replace(/^#\/?/, '/');
   if (hash && hash !== '/') {
-    return hash.startsWith('/') ? hash : `/${hash}`;
+    const cleanHash = hash.replace(/\.html$/, '');
+    return cleanHash.startsWith('/') ? cleanHash : `/${cleanHash}`;
   }
 
-  // 3. Check pathname
-  const rawPath = window.location.pathname || '/';
+  // 4. Check pathname, stripping .html suffix if accessed directly as file
+  let rawPath = window.location.pathname || '/';
+  if (rawPath.endsWith('.html')) {
+    rawPath = rawPath.slice(0, -5);
+  }
+  if (rawPath.length > 1 && rawPath.endsWith('/')) {
+    rawPath = rawPath.slice(0, -1);
+  }
 
   // Recognized known routes
   const recognizedRoutes = [
