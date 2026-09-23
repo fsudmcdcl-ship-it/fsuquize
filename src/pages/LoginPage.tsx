@@ -1,0 +1,195 @@
+import React, { useState } from 'react';
+import { dataService } from '../lib/dataService';
+import type { Student } from '../types/quiz';
+import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff, ShieldCheck, HelpCircle } from 'lucide-react';
+
+interface LoginPageProps {
+  navigate: (path: string) => void;
+  onStudentLoggedIn: (student: Student) => void;
+}
+
+export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedIn }) => {
+  const [studentId, setStudentId] = useState('');
+  const [passcode, setPasscode] = useState('');
+  const [showPasscode, setShowPasscode] = useState(false);
+  const [error, setError] = useState('');
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!studentId.trim()) {
+      setError('कृपया आफ्नो विद्यार्थी ID प्रविष्ट गर्नुहोस्।');
+      return;
+    }
+    if (!passcode.trim()) {
+      setError('कृपया ४ अंकको पासकोड प्रविष्ट गर्नुहोस्।');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const result = dataService.loginStudent(studentId, passcode);
+    setIsSubmitting(false);
+
+    if (!result.success || !result.student) {
+      setError(result.error || 'विद्यार्थी ID वा पासकोड मिलेन।');
+      return;
+    }
+
+    onStudentLoggedIn(result.student);
+    navigate('/dashboard');
+  };
+
+  return (
+    <div className="max-w-md mx-auto px-4 py-12">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-md">
+        {/* Header */}
+        <div className="text-center mb-8 border-b border-slate-100 pb-6">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-3 text-xl font-bold">
+            🎓
+          </div>
+          <h1 className="text-2xl font-black text-slate-900">विद्यार्थी लगइन</h1>
+          <p className="text-slate-500 text-xs mt-1">
+            FSU DMC साप्ताहिक क्विज पोर्टलमा स्वागत छ
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-5 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs leading-relaxed flex items-start gap-2.5 animate-in fade-in">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Student ID */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              विद्यार्थी ID (Student ID) *
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                required
+                autoComplete="username"
+                value={studentId}
+                onChange={e => setStudentId(e.target.value.toUpperCase())}
+                placeholder="उदा. FSU25678"
+                className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-mono font-bold tracking-wide"
+              />
+              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              दर्ता गर्दा प्राप्त भएको ID (उदा. FSU25678)
+            </p>
+          </div>
+
+          {/* 4-digit Passcode */}
+          <div>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                ४ अंकको पासकोड (PIN) *
+              </label>
+              <button
+                type="button"
+                onClick={() => setHelpModalOpen(true)}
+                className="text-[11px] text-red-600 hover:underline font-semibold"
+              >
+                पासकोड/लगइन सहायता?
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                type={showPasscode ? 'text' : 'password'}
+                required
+                maxLength={4}
+                autoComplete="current-password"
+                value={passcode}
+                onChange={e => setPasscode(e.target.value.replace(/\D/g, ''))}
+                placeholder="••••"
+                className="w-full pl-10 pr-10 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-mono tracking-widest font-bold"
+              />
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <button
+                type="button"
+                onClick={() => setShowPasscode(!showPasscode)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow-md shadow-red-600/25 transition flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>लगइन गर्नुहोस्</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+
+          {/* Registration Link */}
+          <div className="pt-4 border-t border-slate-100 text-center">
+            <p className="text-xs text-slate-500">
+              खाता छैन?{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/register')}
+                className="font-bold text-red-600 hover:underline"
+              >
+                नयाँ विद्यार्थी दर्ता गर्नुहोस्
+              </button>
+            </p>
+          </div>
+        </form>
+
+        {/* Demo Credentials Quick-Filler for testing */}
+        <div className="mt-6 pt-4 border-t border-slate-100 bg-slate-50 rounded-2xl p-3.5 text-xs text-slate-500 space-y-1.5">
+          <span className="font-bold text-slate-700 block">परीक्षण लगइन (Sample Student):</span>
+          <div className="flex items-center justify-between font-mono bg-white p-2 rounded-lg border border-slate-200">
+            <span>ID: <b className="text-slate-800">FSU25678</b> | PIN: <b className="text-slate-800">1234</b></span>
+            <button
+              onClick={() => {
+                setStudentId('FSU25678');
+                setPasscode('1234');
+              }}
+              className="text-red-600 font-bold text-[11px] hover:underline"
+            >
+              स्वतः भर्नुहोस्
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Help Modal */}
+      {helpModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-2 text-slate-900 font-bold text-lg">
+              <HelpCircle className="w-5 h-5 text-red-600" />
+              <span>पासकोड तथा लगइन सहायता</span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              यदि तपाईंले आफ्नो ४ अंकको पासकोड बिर्सनुभयो वा विद्यार्थी ID हराउनुभयो भने आफ्नो परिचयपत्र (क्याम्पस कार्ड) सहित स्ववियु (FSU) सचिवालय वा क्विज मास्टरसँग सम्पर्क गर्नुहोस्।
+            </p>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
+              <p><b>सम्पर्क:</b> FSU DMC सचिवालय</p>
+              <p><b>इमेल:</b> fsu@fsudmc.com</p>
+              <p><b>फोन:</b> ९८००००००००</p>
+            </div>
+            <button
+              onClick={() => setHelpModalOpen(false)}
+              className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition"
+            >
+              बुझें (बन्द गर्नुहोस्)
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

@@ -1,0 +1,164 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Registered campus student profile at FSU DMC",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 32 },
+        "name": { "type": "string", "maxLength": 100 },
+        "rollNo": { "type": "string", "maxLength": 20 },
+        "class": { "type": "string", "maxLength": 50 },
+        "semester": { "type": "string", "maxLength": 30 },
+        "phone": { "type": "string", "maxLength": 15 },
+        "username": { "type": "string", "maxLength": 32 },
+        "passcode": { "type": "string", "maxLength": 64 },
+        "profilePhoto": { "type": "string", "maxLength": 200000 },
+        "status": { "type": "string", "enum": ["active", "restricted", "blocked"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "rollNo", "class", "semester", "phone", "username", "status"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Authorized Quiz Master administrator",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "quizemaster"] },
+        "name": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Weekly campus quiz schedule and configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 500 },
+        "startAt": { "type": "string", "format": "date-time" },
+        "endAt": { "type": "string", "format": "date-time" },
+        "durationMinutes": { "type": "number" },
+        "questionCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["draft", "active", "closed", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "startAt", "endAt", "status"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Individual multiple choice question from the 50-question bank",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "quizId": { "type": "string", "maxLength": 64 },
+        "setNumber": { "type": "number" },
+        "question": { "type": "string", "maxLength": 500 },
+        "optionA": { "type": "string", "maxLength": 200 },
+        "optionB": { "type": "string", "maxLength": 200 },
+        "optionC": { "type": "string", "maxLength": 200 },
+        "optionD": { "type": "string", "maxLength": 200 },
+        "correctAnswer": { "type": "string", "enum": ["A", "B", "C", "D"] },
+        "explanation": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["id", "quizId", "setNumber", "question", "optionA", "optionB", "optionC", "optionD", "correctAnswer"]
+    },
+    "QuizSession": {
+      "title": "QuizSession",
+      "description": "Active or completed attempt session for a student in a specific quiz",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "quizId": { "type": "string", "maxLength": 64 },
+        "studentId": { "type": "string", "maxLength": 32 },
+        "studentName": { "type": "string", "maxLength": 100 },
+        "studentRoll": { "type": "string", "maxLength": 20 },
+        "studentClass": { "type": "string", "maxLength": 50 },
+        "studentSemester": { "type": "string", "maxLength": 30 },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "timeTakenSeconds": { "type": "number" },
+        "score": { "type": "number" },
+        "percentage": { "type": "number" },
+        "rank": { "type": "number" },
+        "status": { "type": "string", "enum": ["in_progress", "submitted", "expired"] }
+      },
+      "required": ["id", "quizId", "studentId", "startedAt", "expiresAt", "status"]
+    },
+    "WinnerRecord": {
+      "title": "WinnerRecord",
+      "description": "Published top 3 winners of a weekly quiz",
+      "type": "object",
+      "properties": {
+        "quizId": { "type": "string", "maxLength": 64 },
+        "quizTitle": { "type": "string", "maxLength": 150 },
+        "publishedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["quizId", "publishedAt"]
+    },
+    "TieBreak": {
+      "title": "TieBreak",
+      "description": "Deterministic/random tie break resolution log",
+      "type": "object",
+      "properties": {
+        "tieBreakId": { "type": "string", "maxLength": 64 },
+        "quizId": { "type": "string", "maxLength": 64 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "winnerStudentId": { "type": "string", "maxLength": 32 }
+      },
+      "required": ["tieBreakId", "quizId", "timestamp", "winnerStudentId"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Admin activity audit trail for accountability",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "adminUid": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string", "maxLength": 100 },
+        "target": { "type": "string", "maxLength": 100 },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "adminUid", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Student profiles and credentials"
+    },
+    "/admins/{uid}": {
+      "schema": "Admin",
+      "description": "Authorized Quiz Master administrators"
+    },
+    "/quizzes/{quizId}": {
+      "schema": "Quiz",
+      "description": "Campus weekly quizzes"
+    },
+    "/quizzes/{quizId}/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Questions organized into 5 sets per quiz"
+    },
+    "/quizSessions/{quizSessionId}": {
+      "schema": "QuizSession",
+      "description": "Student quiz attempts and graded scores"
+    },
+    "/winners/{quizId}": {
+      "schema": "WinnerRecord",
+      "description": "Top winners for each weekly quiz"
+    },
+    "/tieBreaks/{tieBreakId}": {
+      "schema": "TieBreak",
+      "description": "Tie-break draw recordings"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Administrative actions audit log"
+    }
+  }
+}

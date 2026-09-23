@@ -1,0 +1,237 @@
+import React from 'react';
+import type { Student, Quiz, QuizSession } from '../types/quiz';
+import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
+import { BookOpen, Clock, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
+
+interface TodaysQuizPageProps {
+  navigate: (path: string) => void;
+  student: Student | null;
+  activeQuiz: Quiz | null;
+  studentSession: QuizSession | null;
+}
+
+export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
+  navigate,
+  student,
+  activeQuiz,
+  studentSession,
+}) => {
+  // If no quiz is active
+  if (!activeQuiz || activeQuiz.status !== 'active') {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center space-y-6">
+        <div className="w-20 h-20 bg-amber-100 text-amber-600 rounded-3xl flex items-center justify-center mx-auto text-4xl shadow-sm">
+          ⏳
+        </div>
+
+        <div>
+          <span className="text-xs font-bold text-amber-600 uppercase tracking-widest block mb-1">
+            सूचना
+          </span>
+          <h1 className="text-3xl font-black text-slate-900">
+            अहिले कुनै क्विज सञ्चालनमा छैन
+          </h1>
+          <p className="text-base text-slate-600 max-w-lg mx-auto mt-2 leading-relaxed">
+            हाल कुनै क्विज सञ्चालनमा छैन। नयाँ क्विज सञ्चालन भएपछि यहाँ जानकारी देखाइनेछ।
+          </p>
+        </div>
+
+        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs max-w-md mx-auto text-left text-xs space-y-3">
+          <div className="flex justify-between py-1 border-b border-slate-100">
+            <span className="text-slate-500">अर्को क्विज सञ्चालन मिति:</span>
+            <span className="font-bold text-slate-800">आउँदो शुक्रबार</span>
+          </div>
+          <div className="flex justify-between py-1 border-b border-slate-100">
+            <span className="text-slate-500">सञ्चालन समय:</span>
+            <span className="font-bold text-slate-800">बेलुका ६:०० बजेबाट</span>
+          </div>
+          <div className="flex justify-between py-1">
+            <span className="text-slate-500">अवधि:</span>
+            <span className="font-bold text-slate-800">७२ घण्टा</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-center gap-3 pt-4">
+          <button
+            onClick={() => navigate('/winner-list')}
+            className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow transition cursor-pointer flex items-center gap-2"
+          >
+            <Trophy className="w-4 h-4" />
+            <span>विजेता सूची हेर्नुहोस्</span>
+          </button>
+          <button
+            onClick={() => navigate('/')}
+            className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition cursor-pointer"
+          >
+            गृहपृष्ठमा फर्कनुहोस्
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const availability = getRemainingAvailability(activeQuiz.endAt);
+  const isAlreadyCompleted = studentSession?.status === 'submitted' || studentSession?.status === 'expired';
+  const isInProgress = studentSession?.status === 'in_progress';
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
+      {/* Quiz Header Card */}
+      <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200/80 shadow-md relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-60 h-60 bg-red-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+            <span className="w-2 h-2 rounded-full bg-red-600 animate-ping"></span>
+            साप्ताहिक क्याम्पस क्विज
+          </span>
+
+          {!availability.isExpired ? (
+            <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-xl flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-amber-600" />
+              <span>{availability.text}</span>
+            </span>
+          ) : (
+            <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1 rounded-xl">
+              क्विजको समय समाप्त भइसकेको छ
+            </span>
+          )}
+        </div>
+
+        <h1 className="text-3xl sm:text-4xl font-black text-slate-900 mb-3">
+          {activeQuiz.title}
+        </h1>
+        <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mb-8">
+          {activeQuiz.description}
+        </p>
+
+        {/* Detailed Metadata Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 bg-slate-50 p-5 rounded-2xl border border-slate-200/70">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">प्रश्न संख्या</span>
+            <span className="text-xl font-black text-slate-900">१० प्रश्न</span>
+            <span className="text-[11px] text-slate-500 block">५० प्रश्नको बैङ्कबाट</span>
+          </div>
+
+          <div>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">कुल समय</span>
+            <span className="text-xl font-black text-slate-900">१० मिनेट</span>
+            <span className="text-[11px] text-slate-500 block">६०० सेकेन्ड</span>
+          </div>
+
+          <div>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">क्विज सुरु</span>
+            <span className="text-xs font-bold text-slate-800 block">
+              {formatNepalDate(activeQuiz.startAt, true)}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">क्विज समाप्त</span>
+            <span className="text-xs font-bold text-slate-800 block">
+              {formatNepalDate(activeQuiz.endAt, true)}
+            </span>
+          </div>
+        </div>
+
+        {/* Rules & Integrity Warning */}
+        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-5 mb-8">
+          <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2 mb-3">
+            <ShieldCheck className="w-4 h-4 text-amber-700" />
+            <span>क्विज नियम तथा निर्देशनहरू:</span>
+          </h3>
+          <ul className="text-xs text-amber-950/80 space-y-2 list-disc list-inside leading-relaxed">
+            <li>क्विज सुरु हुनासाथ १० मिनेटको काउन्टडाउन सुरु हुनेछ।</li>
+            <li>५ वटा फरक सेटबाट स्वचालित रूपमा १० प्रश्नहरू छानिनेछन्।</li>
+            <li>१० मिनेट समाप्त भएमा उत्तरहरू स्वतः सुरक्षित र बुझाइनेछ।</li>
+            <li>एक विद्यार्थीले एक सातामा एकपटक मात्र आधिकारिक प्रयास गर्न पाउनेछन्।</li>
+            <li>समय र प्राप्त अंकका आधारमा स्वतः निष्पक्ष विजेता निर्धारण गरिनेछ।</li>
+          </ul>
+        </div>
+
+        {/* Action Button Section */}
+        <div className="pt-2">
+          {!student ? (
+            <div className="bg-slate-900 text-white rounded-2xl p-6 text-center space-y-4">
+              <h4 className="text-lg font-bold">क्विजमा सहभागी हुन पहिले लगइन गर्नुहोस्</h4>
+              <p className="text-xs text-slate-300 max-w-md mx-auto">
+                यदि तपाईं क्याम्पसको विद्यार्थी हुनुहुन्छ र दर्ता गरिसक्नुभएको छ भने लगइन गर्नुहोस् वा नयाँ दर्ता गर्नुहोस्।
+              </p>
+              <div className="flex flex-wrap justify-center gap-3 pt-2">
+                <button
+                  onClick={() => navigate('/login')}
+                  className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow transition cursor-pointer"
+                >
+                  लगइन गरी क्विज सुरु गर्नुहोस्
+                </button>
+                <button
+                  onClick={() => navigate('/register')}
+                  className="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-sm rounded-xl transition cursor-pointer"
+                >
+                  नयाँ दर्ता गर्नुहोस्
+                </button>
+              </div>
+            </div>
+          ) : isAlreadyCompleted ? (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3 text-center sm:text-left">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600 shrink-0" />
+                <div>
+                  <h4 className="text-base font-bold text-emerald-900">
+                    तपाईंले यो क्विज सफलतापूर्वक बुझाइसक्नुभएको छ
+                  </h4>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    प्राप्त अंक: <b>{toNepaliDigits(studentSession.score)}/१०</b> ({toNepaliDigits(studentSession.percentage)}%)
+                    {studentSession.rank ? ` | स्थान: #${toNepaliDigits(studentSession.rank)}` : ''}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => navigate(`/quiz/${activeQuiz.id}`)}
+                className="shrink-0 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow transition cursor-pointer flex items-center gap-2"
+              >
+                <span>मेरो उत्तर तथा नतिजा हेर्नुहोस्</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : isInProgress ? (
+            <div className="bg-amber-500 text-white rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg shadow-amber-500/20">
+              <div>
+                <h4 className="text-lg font-black">तपाईंको क्विज सत्र जारी छ</h4>
+                <p className="text-xs text-amber-100 mt-1">
+                  समय समाप्त हुनु अगावै आफ्ना प्रश्नहरूको उत्तर बुझाउनुहोस्।
+                </p>
+              </div>
+              <button
+                onClick={() => navigate(`/quiz/${activeQuiz.id}`)}
+                className="shrink-0 px-8 py-3.5 bg-slate-950 hover:bg-slate-900 text-white font-black text-sm rounded-xl shadow transition cursor-pointer flex items-center gap-2 animate-bounce"
+              >
+                <span>क्विज जारी राख्नुहोस्</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-200">
+              <div>
+                <h4 className="text-base font-bold text-slate-900">तयार हुनुहुन्छ?</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  'सुरु गर्नुहोस्' थिचेपछि तत्काल १० मिनेटको समयसीमा सुरु हुनेछ।
+                </p>
+              </div>
+
+              <button
+                onClick={() => navigate(`/quiz/${activeQuiz.id}`)}
+                disabled={availability.isExpired || student.status === 'blocked'}
+                className="w-full sm:w-auto px-8 py-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black text-base rounded-2xl shadow-lg shadow-red-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <BookOpen className="w-5 h-5" />
+                <span>क्विज सुरु गर्नुहोस्</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
