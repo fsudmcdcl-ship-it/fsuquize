@@ -13,6 +13,7 @@ import type {
 } from '../types/quiz';
 import { INITIAL_50_QUESTIONS } from './seedQuestions';
 import { isConfigured, firestoreDb, logoutAdminFromFirebase } from './firebase';
+import { registerDeviceSession, logoutDeviceSession } from './deviceSession';
 import {
   collection,
   doc,
@@ -200,6 +201,10 @@ class DataService {
   }
 
   logoutStudent(): void {
+    const student = this.getCurrentStudent();
+    if (student) {
+      logoutDeviceSession(student.id).catch(() => {});
+    }
     this.setCurrentStudent(null);
   }
 
@@ -338,6 +343,11 @@ class DataService {
     if (student.passcode !== passcode.trim()) {
       return { success: false, error: 'प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन।' };
     }
+
+    // Register active device session asynchronously
+    registerDeviceSession(student.id).catch(err => {
+      console.debug('Notice: Device session registration background:', err);
+    });
 
     this.setCurrentStudent(student);
     return { success: true, student };

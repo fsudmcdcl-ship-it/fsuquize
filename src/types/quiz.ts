@@ -1,5 +1,16 @@
 export type StudentStatus = 'active' | 'suspended' | 'blocked' | 'restricted';
 
+export interface DeviceSession {
+  deviceId: string;
+  deviceName: string;
+  userAgent?: string;
+  ipAddress?: string;
+  lastActive: number; // Unix timestamp in ms
+  loginAt: string; // ISO string
+  status: 'active' | 'expired';
+  isCurrent?: boolean;
+}
+
 export interface Student {
   id: string; // e.g., FSU25678
   uid?: string;
@@ -12,6 +23,7 @@ export interface Student {
   passcode: string; // 4 digits
   profilePhoto?: string;
   status: StudentStatus;
+  activeSessions?: Record<string, DeviceSession>;
   createdAt: string;
   updatedAt?: string;
 }

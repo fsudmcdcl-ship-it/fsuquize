@@ -9,7 +9,15 @@
       "$studentId": {
         ".read": true,
         ".write": "auth != null || !data.exists() || (data.exists() && newData.child('id').val() == $studentId)",
-        ".validate": "newData.hasChildren(['id', 'name', 'rollNo', 'class', 'phone'])"
+        ".validate": "newData.hasChildren(['id', 'name', 'rollNo', 'class', 'phone'])",
+        "activeSessions": {
+          ".read": true,
+          "$deviceId": {
+            ".read": true,
+            ".write": true,
+            ".validate": "newData.hasChildren(['deviceId', 'lastActive'])"
+          }
+        }
       }
     },
 

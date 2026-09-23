@@ -63,12 +63,24 @@ function parseCurrentRoute(): string {
     '/my-status',
     '/profile',
     '/quizemasteradmin',
+    '/students',
+    '/quizzes',
+    '/questions',
+    '/submissions',
+    '/winners',
+    '/reports',
+    '/settings',
   ];
 
   for (const r of recognizedRoutes) {
     const idx = rawPath.indexOf(r);
     if (idx !== -1) {
-      return rawPath.substring(idx);
+      const matched = rawPath.substring(idx);
+      // If student/admin sub-route accessed directly (e.g. /students), map to admin path
+      if (['/students', '/quizzes', '/questions', '/submissions', '/winners', '/reports', '/settings'].includes(matched)) {
+        return `/quizemasteradmin${matched}`;
+      }
+      return matched;
     }
   }
 
