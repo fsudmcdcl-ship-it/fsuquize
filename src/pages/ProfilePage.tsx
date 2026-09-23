@@ -1,8 +1,9 @@
-import React, { useState, useId } from 'react';
-import type { Student } from '../types/quiz';
+import React, { useState, useEffect, useId } from 'react';
+import type { Student, DeviceSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
-import { User, ShieldAlert, Camera, Check, Upload, X, ShieldCheck } from 'lucide-react';
+import { fetchActiveSessions, getOrCreateDeviceId } from '../lib/deviceSession';
+import { User, ShieldAlert, Camera, Check, Upload, X, ShieldCheck, Laptop, Smartphone, Monitor } from 'lucide-react';
 
 interface ProfilePageProps {
   student: Student;
@@ -17,7 +18,29 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 }) => {
   const [profilePhoto, setProfilePhoto] = useState(student.profilePhoto || '');
   const [savedNotice, setSavedNotice] = useState(false);
+  const [activeSessions, setActiveSessions] = useState<DeviceSession[]>([]);
+  const currentDeviceId = getOrCreateDeviceId();
   const fileInputId = useId();
+
+  useEffect(() => {
+    fetchActiveSessions(student.id).then(sessions => {
+      if (sessions.length > 0) {
+        setActiveSessions(sessions);
+      } else {
+        // Provide current device fallback
+        setActiveSessions([
+          {
+            deviceId: currentDeviceId,
+            deviceName: 'यो उपकरण (Current Device)',
+            lastActive: Date.now(),
+            loginAt: new Date().toISOString(),
+            status: 'active',
+            isCurrent: true,
+          },
+        ]);
+      }
+    });
+  }, [student.id, currentDeviceId]);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -186,6 +209,62 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <span>
               क्विजको स्वच्छता र आधिकारिकताका लागि विद्यार्थीको नाम, रोल नम्बर र कक्षा परिवर्तन गर्न क्याम्पस प्रशासन (स्ववियु सचिवालय) सँग सम्पर्क गर्नुपर्नेछ।
             </span>
+          </div>
+        </div>
+
+        {/* Active Multi-Device Logins */}
+        <div className="border-t border-slate-100 pt-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <h3 className="text-sm font-bold text-slate-800">सक्रिय उपकरणहरू (Active Devices)</h3>
+            </div>
+            <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+              {toNepaliDigits(activeSessions.length)} यन्त्र सक्रिय
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {activeSessions.map((session) => (
+              <div
+                key={session.deviceId}
+                className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-xs transition ${
+                  session.deviceId === currentDeviceId
+                    ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
+                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center text-slate-600 shadow-2xs">
+                    {session.deviceName.toLowerCase().includes('phone') ||
+                    session.deviceName.toLowerCase().includes('android') ||
+                    session.deviceName.toLowerCase().includes('iphone') ? (
+                      <Smartphone className="w-4 h-4 text-slate-700" />
+                    ) : (
+                      <Laptop className="w-4 h-4 text-slate-700" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>{session.deviceName}</span>
+                      {session.deviceId === currentDeviceId && (
+                        <span className="text-[9px] bg-emerald-600 text-white font-extrabold px-1.5 py-0.5 rounded-sm">
+                          यो उपकरण
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono">
+                      {session.loginAt ? formatNepalDate(session.loginAt) : 'भर्खरै सक्रिय'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] font-bold text-emerald-700">सक्रिय</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
