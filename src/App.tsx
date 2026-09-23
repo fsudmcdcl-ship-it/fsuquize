@@ -141,6 +141,11 @@ export default function App() {
   useEffect(() => {
     refreshData();
 
+    // Subscribe to DataService live updates & Firestore sync events
+    const unsubscribeData = dataService.subscribe(() => {
+      refreshData();
+    });
+
     // Listen to Firebase Auth state for admin user
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
@@ -153,7 +158,10 @@ export default function App() {
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeData();
+      unsubscribeAuth();
+    };
   }, []);
 
   // Listen to popstate & hashchange
@@ -321,6 +329,7 @@ export default function App() {
         adminSlug={adminSlug}
         navigate={navigate}
         onLogout={handleAdminLogout}
+        onRefresh={refreshData}
       >
         {adminContent}
       </AdminLayout>

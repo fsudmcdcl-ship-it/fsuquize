@@ -8,10 +8,20 @@ import type {
   TieBreak,
   AuditLog,
   PortalSettings,
-  QuestionOption
+  QuestionOption,
+  StudentStatus
 } from '../types/quiz';
 import { INITIAL_50_QUESTIONS } from './seedQuestions';
 import { isConfigured, firestoreDb, logoutAdminFromFirebase } from './firebase';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+} from 'firebase/firestore';
 
 const STORAGE_KEYS = {
   STUDENTS: 'fsudmc_students_v2',
@@ -25,6 +35,8 @@ const STORAGE_KEYS = {
   TIE_BREAKS: 'fsudmc_tie_breaks_v2',
   AUDIT_LOGS: 'fsudmc_audit_logs_v2',
   SETTINGS: 'fsudmc_settings_v2',
+  DRAFT_STATUS: 'fsudmc_draft_pending_v2',
+  LAST_SYNC: 'fsudmc_last_sync_v2',
 };
 
 // Default portal settings
@@ -43,9 +55,7 @@ const DEFAULT_SETTINGS: PortalSettings = {
 // Seed an initial active quiz set to 72 hours availability
 function createInitialQuiz(): Quiz {
   const now = new Date();
-  // Starts 1 hour ago
   const startAt = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-  // Ends 71 hours from now (72 hours total)
   const endAt = new Date(now.getTime() + 71 * 60 * 60 * 1000).toISOString();
 
   return {
@@ -62,14 +72,16 @@ function createInitialQuiz(): Quiz {
   };
 }
 
-// Real data only from backend/storage: clean empty arrays without mock/fake data
 const INITIAL_STUDENTS: Student[] = [];
 const INITIAL_SESSIONS: QuizSession[] = [];
 const INITIAL_WINNERS: WinnerRecord[] = [];
 
+type DataListener = () => void;
 
 class DataService {
   private memoryStore: Record<string, string> = {};
+  private listeners: Set<DataListener> = new Set();
+  private isSyncing = false;
 
   private getStorage<T>(key: string, fallback: T): T {
     try {
@@ -104,6 +116,12 @@ class DataService {
 
   constructor() {
     this.initStorage();
+    // Synchronize initial data from Firestore in background
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        this.syncFromFirestore().catch(() => {});
+      }, 500);
+    }
   }
 
   private initStorage() {
@@ -125,6 +143,42 @@ class DataService {
     ]);
   }
 
+  // =================== LISTENERS & DRAFT/LIVE STATE ===================
+
+  subscribe(listener: DataListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  notifyListeners(): void {
+    this.listeners.forEach(fn => {
+      try {
+        fn();
+      } catch (err) {
+        console.error('DataService listener error:', err);
+      }
+    });
+  }
+
+  hasUnsavedDrafts(): boolean {
+    return this.getStorage<boolean>(STORAGE_KEYS.DRAFT_STATUS, false);
+  }
+
+  setDraftChanges(hasChanges: boolean): void {
+    this.setStorage(STORAGE_KEYS.DRAFT_STATUS, hasChanges);
+    this.notifyListeners();
+  }
+
+  getLastSyncedAt(): string | null {
+    return this.getStorage<string | null>(STORAGE_KEYS.LAST_SYNC, null);
+  }
+
+  private setLastSyncedAt(timeStr: string): void {
+    this.setStorage(STORAGE_KEYS.LAST_SYNC, timeStr);
+  }
+
   // =================== AUTHENTICATION ===================
 
   getCurrentStudent(): Student | null {
@@ -133,6 +187,7 @@ class DataService {
 
   setCurrentStudent(student: Student | null): void {
     this.setStorage(STORAGE_KEYS.CURRENT_STUDENT, student);
+    this.notifyListeners();
   }
 
   getCurrentAdmin(): AdminUser | null {
@@ -141,6 +196,7 @@ class DataService {
 
   setCurrentAdmin(admin: AdminUser | null): void {
     this.setStorage(STORAGE_KEYS.CURRENT_ADMIN, admin);
+    this.notifyListeners();
   }
 
   logoutStudent(): void {
@@ -246,24 +302,41 @@ class DataService {
     // Auto log-in student
     this.setCurrentStudent(newStudent);
 
+    // Persist to Firebase Firestore asynchronously
+    this.saveStudentToFirestore(newStudent).catch(err => {
+      console.warn('Backend student persistence error:', err);
+    });
+
     return { success: true, student: newStudent };
   }
 
   loginStudent(studentIdOrUsername: string, passcode: string): { success: boolean; student?: Student; error?: string } {
     const students = this.getStudents();
-    const id = studentIdOrUsername.trim().toUpperCase();
+    const query = studentIdOrUsername.trim().toUpperCase();
+    const cleanPhone = studentIdOrUsername.trim();
 
-    const student = students.find(s => s.id.toUpperCase() === id || s.username.toUpperCase() === id);
+    // Check by id, username, phone, or roll number
+    const student = students.find(s =>
+      s.id.toUpperCase() === query ||
+      s.username.toUpperCase() === query ||
+      s.phone === cleanPhone ||
+      s.rollNo.toUpperCase() === query
+    );
+
     if (!student) {
-      return { success: false, error: 'विद्यार्थी ID वा पासकोड मिलेन।' };
-    }
-
-    if (student.passcode !== passcode.trim()) {
-      return { success: false, error: 'विद्यार्थी ID वा पासकोड मिलेन।' };
+      return { success: false, error: 'विद्यार्थी ID, फोन वा रोल नम्बर फेला परेन। कृपया पहिले नयाँ खाता दर्ता गर्नुहोस्।' };
     }
 
     if (student.status === 'blocked') {
-      return { success: false, error: 'तपाईंको खाता हाल ब्लक गरिएको छ। कृपया प्रशासनसँग सम्पर्क गर्नुहोस्।' };
+      return { success: false, error: 'तपाईंको विद्यार्थी खाता प्रशासकद्वारा ब्लक गरिएको छ। कृपया क्याम्पस प्रशासनसँग सम्पर्क गर्नुहोस्।' };
+    }
+
+    if (student.status === 'suspended') {
+      return { success: false, error: 'तपाईंको विद्यार्थी खाता हाल निलम्बित गरिएको छ। सहायताका लागि प्रशासनलाई सम्पर्क गर्नुहोस्।' };
+    }
+
+    if (student.passcode !== passcode.trim()) {
+      return { success: false, error: 'प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन।' };
     }
 
     this.setCurrentStudent(student);
@@ -290,7 +363,7 @@ class DataService {
     return { success: false, error: 'प्रशासक इमेल वा पासकोड मिलेन।' };
   }
 
-  updateStudentStatus(studentId: string, status: 'active' | 'restricted' | 'blocked', adminEmail = 'admin'): boolean {
+  updateStudentStatus(studentId: string, status: StudentStatus, adminEmail = 'admin'): boolean {
     const students = this.getStudents();
     const idx = students.findIndex(s => s.id === studentId);
     if (idx === -1) return false;
@@ -299,20 +372,62 @@ class DataService {
     students[idx].updatedAt = new Date().toISOString();
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
 
-    // Update session if it's the currently logged-in student
+    // Update current student session if currently logged in
     const cur = this.getCurrentStudent();
     if (cur && cur.id === studentId) {
       cur.status = status;
       this.setCurrentStudent(cur);
     }
 
+    // Persist directly to Firestore backend
+    this.updateStudentInFirestore(studentId, {
+      status,
+      updatedAt: students[idx].updatedAt
+    }).catch(err => console.warn('Firestore updateStudentStatus warning:', err));
+
     this.addAuditLog({
       adminEmail,
-      action: status === 'blocked' ? 'विद्यार्थी ब्लक' : status === 'restricted' ? 'विद्यार्थी प्रतिबन्ध' : 'स्थिति सक्रिय',
+      action: status === 'blocked' ? 'विद्यार्थी ब्लक' : status === 'suspended' ? 'विद्यार्थी निलम्बन' : status === 'restricted' ? 'विद्यार्थी प्रतिबन्ध' : 'स्थिति सक्रिय',
       target: studentId,
-      details: `विद्यार्थीको स्थिति ${status} मा परिवर्तन गरियो`
+      details: `विद्यार्थीको खाता स्थिति ${status} मा परिवर्तन गरियो`
     });
 
+    this.notifyListeners();
+    return true;
+  }
+
+  updateStudent(studentId: string, updates: Partial<Student>, adminEmail = 'admin'): boolean {
+    const students = this.getStudents();
+    const idx = students.findIndex(s => s.id === studentId);
+    if (idx === -1) return false;
+
+    const updatedStudent: Student = {
+      ...students[idx],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+
+    students[idx] = updatedStudent;
+    this.setStorage(STORAGE_KEYS.STUDENTS, students);
+
+    const cur = this.getCurrentStudent();
+    if (cur && cur.id === studentId) {
+      this.setCurrentStudent(updatedStudent);
+    }
+
+    // Persist directly to Firestore backend
+    this.updateStudentInFirestore(studentId, updatedStudent).catch(err => {
+      console.warn('Firestore updateStudent warning:', err);
+    });
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'विद्यार्थी विवरण सम्पादन',
+      target: studentId,
+      details: `विद्यार्थी ${updatedStudent.name} को विवरण अपडेट गरियो`
+    });
+
+    this.notifyListeners();
     return true;
   }
 
@@ -321,14 +436,169 @@ class DataService {
     students = students.filter(s => s.id !== studentId);
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
 
+    // Delete directly from Firestore backend
+    this.deleteStudentFromFirestore(studentId).catch(err => {
+      console.warn('Firestore deleteStudent warning:', err);
+    });
+
     this.addAuditLog({
       adminEmail,
       action: 'विद्यार्थी स्थायी मेटाइयो',
       target: studentId,
-      details: `विद्यार्थी खाता प्रणालीबाट हटाइयो`
+      details: `विद्यार्थी खाता प्रणाली र ब्याकइन्डबाट हटाइयो`
     });
 
+    this.notifyListeners();
     return true;
+  }
+
+  // =================== FIRESTORE PERSISTENCE METHODS ===================
+
+  async saveStudentToFirestore(student: Student): Promise<void> {
+    try {
+      await setDoc(doc(firestoreDb, 'students', student.id), student, { merge: true });
+    } catch (err) {
+      console.warn('Error persisting student to Firestore:', err);
+    }
+  }
+
+  async updateStudentInFirestore(studentId: string, updates: Partial<Student>): Promise<void> {
+    try {
+      await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
+    } catch (err) {
+      console.warn('Error updating student in Firestore:', err);
+    }
+  }
+
+  async deleteStudentFromFirestore(studentId: string): Promise<void> {
+    try {
+      await deleteDoc(doc(firestoreDb, 'students', studentId));
+    } catch (err) {
+      console.warn('Error deleting student from Firestore:', err);
+    }
+  }
+
+  /**
+   * Sync all collections from Firestore into local cache
+   */
+  async syncFromFirestore(): Promise<{ success: boolean; studentCount: number; error?: string }> {
+    if (this.isSyncing) {
+      return { success: true, studentCount: this.getStudents().length };
+    }
+    this.isSyncing = true;
+    try {
+      // 1. Students collection
+      const studentsSnap = await getDocs(collection(firestoreDb, 'students'));
+      if (!studentsSnap.empty) {
+        const firestoreStudents: Student[] = [];
+        studentsSnap.forEach(d => {
+          firestoreStudents.push(d.data() as Student);
+        });
+
+        // Merge Firestore data with local storage so no records are lost
+        const localStudents = this.getStudents();
+        const map = new Map<string, Student>();
+        for (const s of localStudents) map.set(s.id, s);
+        for (const s of firestoreStudents) map.set(s.id, s);
+        const merged = Array.from(map.values());
+        this.setStorage(STORAGE_KEYS.STUDENTS, merged);
+      }
+
+      // 2. Quizzes collection
+      const quizzesSnap = await getDocs(collection(firestoreDb, 'quizzes'));
+      if (!quizzesSnap.empty) {
+        const firestoreQuizzes: Quiz[] = [];
+        quizzesSnap.forEach(d => {
+          firestoreQuizzes.push(d.data() as Quiz);
+        });
+        this.setStorage(STORAGE_KEYS.QUIZZES, firestoreQuizzes);
+      }
+
+      // 3. Settings collection
+      const settingsSnap = await getDoc(doc(firestoreDb, 'settings', 'portal'));
+      if (settingsSnap.exists()) {
+        const s = settingsSnap.data() as PortalSettings;
+        this.setStorage(STORAGE_KEYS.SETTINGS, { ...DEFAULT_SETTINGS, ...s });
+      }
+
+      // 4. Winners collection
+      const winnersSnap = await getDocs(collection(firestoreDb, 'winners'));
+      if (!winnersSnap.empty) {
+        const firestoreWinners: WinnerRecord[] = [];
+        winnersSnap.forEach(d => {
+          firestoreWinners.push(d.data() as WinnerRecord);
+        });
+        this.setStorage(STORAGE_KEYS.WINNERS, firestoreWinners);
+      }
+
+      // 5. Quiz Sessions collection
+      const sessionsSnap = await getDocs(collection(firestoreDb, 'quizSessions'));
+      if (!sessionsSnap.empty) {
+        const firestoreSessions: QuizSession[] = [];
+        sessionsSnap.forEach(d => {
+          firestoreSessions.push(d.data() as QuizSession);
+        });
+        this.setStorage(STORAGE_KEYS.SESSIONS, firestoreSessions);
+      }
+
+      const now = new Date().toISOString();
+      this.setLastSyncedAt(now);
+      this.setDraftChanges(false);
+      this.notifyListeners();
+      return { success: true, studentCount: this.getStudents().length };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('Firestore sync warning:', msg);
+      return { success: false, studentCount: this.getStudents().length, error: msg };
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Publish all local changes live to Firebase Firestore
+   */
+  async publishGlobalLive(adminEmail = 'admin@fsudmc.com'): Promise<{ success: boolean; message: string }> {
+    try {
+      // 1. Push all students
+      const students = this.getStudents();
+      for (const s of students) {
+        await setDoc(doc(firestoreDb, 'students', s.id), s, { merge: true });
+      }
+
+      // 2. Push all quizzes
+      const quizzes = this.getQuizzes();
+      for (const q of quizzes) {
+        await setDoc(doc(firestoreDb, 'quizzes', q.id), q, { merge: true });
+      }
+
+      // 3. Push portal settings
+      const settings = this.getSettings();
+      await setDoc(doc(firestoreDb, 'settings', 'portal'), settings, { merge: true });
+
+      // 4. Push winners
+      const winners = this.getWinners();
+      for (const w of winners) {
+        await setDoc(doc(firestoreDb, 'winners', w.quizId), w, { merge: true });
+      }
+
+      this.setDraftChanges(false);
+      const now = new Date().toISOString();
+      this.setLastSyncedAt(now);
+
+      this.addAuditLog({
+        adminEmail,
+        action: 'ग्लोबल लाइभ प्रकाशित (Global Live)',
+        target: 'firestore_all',
+        details: 'सबै विद्यार्थी विवरण, क्विज तथा सेटिङ क्लाउड ब्याकइन्डमा प्रत्यक्ष प्रकाशित गरियो'
+      });
+
+      this.notifyListeners();
+      return { success: true, message: 'सबै डाटा क्लाउड ब्याकइन्डमा ग्लोबल लाइभ प्रकाशित गरियो!' };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, message: `ग्लोबल लाइभ गर्न समस्या: ${msg}` };
+    }
   }
 
   // =================== QUIZZES ===================
@@ -339,80 +609,84 @@ class DataService {
 
   getActiveQuiz(): Quiz | null {
     const quizzes = this.getQuizzes();
-    return quizzes.find(q => q.status === 'active') || quizzes[0] || null;
+    const active = quizzes.find(q => q.status === 'active');
+    return active || null;
   }
 
-  createQuiz(data: Omit<Quiz, 'id' | 'createdAt'>, adminEmail = 'admin'): Quiz {
-    const quizzes = this.getQuizzes();
+  createQuiz(quizData: Omit<Quiz, 'id' | 'createdAt'>, adminEmail = 'admin'): Quiz {
     const newQuiz: Quiz = {
-      ...data,
+      ...quizData,
       id: `quiz_${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
-    if (newQuiz.status === 'active') {
-      quizzes.forEach(q => {
-        if (q.status === 'active') q.status = 'closed';
-      });
-    }
-    quizzes.unshift(newQuiz);
-    this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
-    this.addAuditLog({
-      adminEmail,
-      action: 'नयाँ क्विज थपियो',
-      target: newQuiz.id,
-      details: `${newQuiz.title} सिर्जना गरियो`
-    });
+    this.saveQuiz(newQuiz, adminEmail);
     return newQuiz;
   }
 
   updateQuiz(quiz: Quiz, adminEmail = 'admin'): void {
+    this.saveQuiz(quiz, adminEmail);
+  }
+
+  setActiveQuiz(quizId: string, adminEmail = 'admin'): void {
+    const quizzes = this.getQuizzes();
+    quizzes.forEach(q => {
+      q.status = q.id === quizId ? 'active' : 'archived';
+    });
+    this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
+    this.setDraftChanges(true);
+
+    for (const q of quizzes) {
+      setDoc(doc(firestoreDb, 'quizzes', q.id), q, { merge: true }).catch(() => {});
+    }
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'सक्रिय क्विज परिवर्तन',
+      target: quizId,
+      details: `क्विज ${quizId} लाई प्रत्यक्ष सक्रिय गरियो`
+    });
+
+    this.notifyListeners();
+  }
+
+  saveQuiz(quiz: Quiz, adminEmail = 'admin'): void {
     const quizzes = this.getQuizzes();
     const idx = quizzes.findIndex(q => q.id === quiz.id);
     if (idx >= 0) {
       quizzes[idx] = { ...quiz, updatedAt: new Date().toISOString() };
     } else {
-      quizzes.unshift(quiz);
+      quizzes.unshift({ ...quiz, createdAt: new Date().toISOString() });
     }
     this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
+    this.setDraftChanges(true);
+
+    // Save to Firestore
+    setDoc(doc(firestoreDb, 'quizzes', quiz.id), quiz, { merge: true }).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
-      action: 'क्विज अद्यावधिक',
+      action: 'क्विज सुरक्षित',
       target: quiz.id,
-      details: `${quiz.title} को विवरण अद्यावधिक गरियो`
+      details: `क्विज "${quiz.title}" सुरक्षित गरियो`
     });
+
+    this.notifyListeners();
   }
 
-  deleteQuiz(quizId: string, adminEmail = 'admin'): boolean {
+  deleteQuiz(quizId: string, adminEmail = 'admin'): void {
     let quizzes = this.getQuizzes();
-    const target = quizzes.find(q => q.id === quizId);
-    if (!target) return false;
     quizzes = quizzes.filter(q => q.id !== quizId);
     this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
+    deleteDoc(doc(firestoreDb, 'quizzes', quizId)).catch(() => {});
+
     this.addAuditLog({
       adminEmail,
       action: 'क्विज मेटाइयो',
       target: quizId,
-      details: `${target.title} क्विज मेटाइयो`
+      details: `क्विज ID ${quizId} स्थायी रूपमा हटाइयो`
     });
-    return true;
-  }
 
-  setActiveQuiz(quizId: string, adminEmail = 'admin'): boolean {
-    const quizzes = this.getQuizzes();
-    const target = quizzes.find(q => q.id === quizId);
-    if (!target) return false;
-    quizzes.forEach(q => {
-      q.status = q.id === quizId ? 'active' : 'closed';
-    });
-    this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
-    this.addAuditLog({
-      adminEmail,
-      action: 'सक्रिय क्विज सेट गरियो',
-      target: quizId,
-      details: `${target.title} लाई सक्रिय क्विज बनाइयो`
-    });
-    return true;
+    this.notifyListeners();
   }
 
   // =================== QUESTIONS ===================
@@ -420,7 +694,12 @@ class DataService {
   getQuestions(quizId?: string): Question[] {
     const all = this.getStorage<Question[]>(STORAGE_KEYS.QUESTIONS, INITIAL_50_QUESTIONS);
     if (!quizId) return all;
-    return all.filter(q => q.quizId === quizId || !q.quizId);
+    return all.filter(q => q.quizId === quizId || q.quizId === 'quiz_week_12');
+  }
+
+  getQuestionsForSet(setNumber: 1 | 2 | 3 | 4 | 5, quizId?: string): Question[] {
+    const all = this.getQuestions(quizId);
+    return all.filter(q => q.setNumber === setNumber);
   }
 
   saveQuestion(question: Question, adminEmail = 'admin'): void {
@@ -432,75 +711,40 @@ class DataService {
       questions.push(question);
     }
     this.setStorage(STORAGE_KEYS.QUESTIONS, questions);
+    this.setDraftChanges(true);
 
     this.addAuditLog({
       adminEmail,
-      action: idx >= 0 ? 'प्रश्न सम्पादन' : 'नयाँ प्रश्न थप',
+      action: 'प्रश्न सुरक्षित',
       target: question.id,
-      details: `सेट ${question.setNumber} मा प्रश्न परिवर्तन गरियो`
+      details: `सेट ${question.setNumber} को प्रश्न सुरक्षित गरियो`
     });
+
+    this.notifyListeners();
   }
 
   deleteQuestion(questionId: string, adminEmail = 'admin'): void {
     let questions = this.getQuestions();
     questions = questions.filter(q => q.id !== questionId);
     this.setStorage(STORAGE_KEYS.QUESTIONS, questions);
+    this.setDraftChanges(true);
 
     this.addAuditLog({
       adminEmail,
       action: 'प्रश्न मेटाइयो',
-      target: questionId
+      target: questionId,
+      details: `प्रश्न हटाइयो`
     });
+
+    this.notifyListeners();
   }
 
-  // =================== QUIZ SESSION & RANDOM SELECTION ===================
-
-  /**
-   * Fair selection algorithm: selects 2 questions from each of the 5 sets (10 total)
-   * Randomizes the order for the student.
-   * If a set has fewer than 2, supplements fairly from other available sets.
-   */
-  select10QuestionsForSession(quizId: string): string[] {
-    const bank = this.getQuestions(quizId);
-    const sets: Record<number, Question[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] };
-
-    for (const q of bank) {
-      const setNum = q.setNumber >= 1 && q.setNumber <= 5 ? q.setNumber : 1;
-      sets[setNum].push(q);
-    }
-
-    const selectedIds: string[] = [];
-
-    // Helper to shuffle an array
-    const shuffle = <T>(array: T[]): T[] => [...array].sort(() => Math.random() - 0.5);
-
-    // Pick 2 from each set
-    for (let s = 1; s <= 5; s++) {
-      const shuffledSet = shuffle(sets[s]);
-      const picked = shuffledSet.slice(0, 2);
-      for (const p of picked) {
-        selectedIds.push(p.id);
-      }
-    }
-
-    // If still less than 10, fill from any remaining
-    if (selectedIds.length < 10) {
-      const remaining = bank.filter(q => !selectedIds.includes(q.id));
-      const needed = 10 - selectedIds.length;
-      const extra = shuffle(remaining).slice(0, needed);
-      for (const e of extra) {
-        selectedIds.push(e.id);
-      }
-    }
-
-    // Final shuffle so questions from set 1-5 appear in randomized order
-    return shuffle(selectedIds);
-  }
+  // =================== SESSIONS & SUBMISSIONS ===================
 
   getSessions(quizId?: string): QuizSession[] {
-    const sessions = this.getStorage<QuizSession[]>(STORAGE_KEYS.SESSIONS, INITIAL_SESSIONS);
-    if (!quizId) return sessions;
-    return sessions.filter(s => s.quizId === quizId);
+    const all = this.getStorage<QuizSession[]>(STORAGE_KEYS.SESSIONS, INITIAL_SESSIONS);
+    if (!quizId) return all;
+    return all.filter(s => s.quizId === quizId);
   }
 
   getStudentSession(quizId: string, studentId: string): QuizSession | null {
@@ -508,21 +752,18 @@ class DataService {
     return sessions.find(s => s.studentId === studentId) || null;
   }
 
-  /**
-   * Starts a secure 10-minute quiz session for the student.
-   * If an active session already exists, restores it (resumes countdown).
-   * Prevents re-creating or resetting on reload.
-   */
-  startQuizSession(quiz: Quiz, student: Student): QuizSession {
+  startQuizSession(arg1: Student | Quiz, arg2: Student | Quiz): QuizSession {
+    const student = ('rollNo' in arg1 ? arg1 : arg2) as Student;
+    const quiz = ('durationMinutes' in arg1 ? arg1 : arg2) as Quiz;
     const existing = this.getStudentSession(quiz.id, student.id);
-    if (existing) {
-      return existing;
-    }
+    if (existing) return existing;
 
-    const selectedQuestionIds = this.select10QuestionsForSession(quiz.id);
-    const startedAt = new Date().toISOString();
-    const durationMs = (quiz.durationMinutes || 10) * 60 * 1000;
-    const expiresAt = new Date(Date.now() + durationMs).toISOString();
+    const setNumber = ((Math.floor(Math.random() * 5) + 1) as 1 | 2 | 3 | 4 | 5);
+    const setQuestions = this.getQuestionsForSet(setNumber, quiz.id);
+    const selectedQuestionIds = setQuestions.map(q => q.id).slice(0, 10);
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + quiz.durationMinutes * 60 * 1000).toISOString();
 
     const newSession: QuizSession = {
       id: `${quiz.id}_${student.id}`,
@@ -535,157 +776,176 @@ class DataService {
       studentPhone: student.phone,
       studentPhoto: student.profilePhoto,
       selectedQuestionIds,
-      startedAt,
+      startedAt: now.toISOString(),
       expiresAt,
       answers: {},
       score: 0,
       totalQuestions: selectedQuestionIds.length,
       percentage: 0,
       timeTakenSeconds: 0,
-      status: 'in_progress'
+      status: 'in_progress',
     };
 
-    const allSessions = this.getSessions();
-    allSessions.unshift(newSession);
-    this.setStorage(STORAGE_KEYS.SESSIONS, allSessions);
+    const sessions = this.getSessions();
+    sessions.push(newSession);
+    this.setStorage(STORAGE_KEYS.SESSIONS, sessions);
+
+    // Save session to Firestore
+    setDoc(doc(firestoreDb, 'quizSessions', newSession.id), newSession, { merge: true }).catch(() => {});
 
     return newSession;
   }
 
-  /**
-   * Saves individual answer immediately as student clicks option
-   */
-  saveAnswer(quizId: string, studentId: string, questionId: string, option: QuestionOption): QuizSession | null {
-    const allSessions = this.getSessions();
-    const session = allSessions.find(s => s.quizId === quizId && s.studentId === studentId);
-    if (!session || session.status !== 'in_progress') {
+  saveAnswer(
+    quizIdOrSessionId: string,
+    studentIdOrQuestionId: string,
+    questionIdOrOption: string,
+    optionArg?: QuestionOption
+  ): QuizSession | null {
+    let sessionId = quizIdOrSessionId;
+    let questionId = studentIdOrQuestionId;
+    let answer = questionIdOrOption as QuestionOption;
+    if (optionArg) {
+      sessionId = `${quizIdOrSessionId}_${studentIdOrQuestionId}`;
+      questionId = questionIdOrOption;
+      answer = optionArg;
+    }
+    return this.saveSessionAnswer(sessionId, questionId, answer);
+  }
+
+  saveSessionAnswer(sessionId: string, questionId: string, answer: QuestionOption): QuizSession | null {
+    const sessions = this.getSessions();
+    const idx = sessions.findIndex(s => s.id === sessionId);
+    if (idx === -1) return null;
+
+    const session = sessions[idx];
+    if (session.status !== 'in_progress') return session;
+
+    session.answers[questionId] = answer;
+    sessions[idx] = session;
+    this.setStorage(STORAGE_KEYS.SESSIONS, sessions);
+    return session;
+  }
+
+  submitQuizSession(
+    sessionIdOrQuizId: string,
+    studentIdOrIsExpired?: string | boolean,
+    _isExpiredArg?: boolean
+  ): QuizSession | null {
+    let sessionId = sessionIdOrQuizId;
+    if (typeof studentIdOrIsExpired === 'string') {
+      sessionId = `${sessionIdOrQuizId}_${studentIdOrIsExpired}`;
+    }
+    const sessions = this.getSessions();
+    const idx = sessions.findIndex(s => s.id === sessionId);
+    if (idx === -1) {
       return null;
     }
 
-    session.answers[questionId] = option;
-    this.setStorage(STORAGE_KEYS.SESSIONS, allSessions);
-    return session;
-  }
-
-  /**
-   * Deterministic automatic grading upon submission or timer expiration
-   */
-  submitQuizSession(quizId: string, studentId: string, isAutoExpiry = false): QuizSession | null {
-    const allSessions = this.getSessions();
-    const session = allSessions.find(s => s.quizId === quizId && s.studentId === studentId);
-    if (!session) return null;
-
-    if (session.status !== 'in_progress') {
-      return session; // Already graded and submitted
-    }
-
-    const bank = this.getQuestions(quizId);
-    const questionMap = new Map(bank.map(q => [q.id, q]));
-
-    let correctCount = 0;
-    for (const qId of session.selectedQuestionIds) {
-      const q = questionMap.get(qId);
-      const studentAns = session.answers[qId];
-      if (q && studentAns && studentAns === q.correctAnswer) {
-        correctCount++;
-      }
+    const session = sessions[idx];
+    if (session.status === 'submitted') {
+      return session;
     }
 
     const now = new Date();
-    const startTime = new Date(session.startedAt).getTime();
-    const elapsedSeconds = Math.max(1, Math.min(600, Math.floor((now.getTime() - startTime) / 1000)));
+    const started = new Date(session.startedAt);
+    const timeTakenSeconds = Math.max(1, Math.min(600, Math.floor((now.getTime() - started.getTime()) / 1000)));
 
-    session.score = correctCount;
-    session.totalQuestions = session.selectedQuestionIds.length;
-    session.percentage = Math.round((correctCount / (session.totalQuestions || 10)) * 100);
+    const allQuestions = this.getQuestions(session.quizId);
+    const questionMap = new Map<string, Question>();
+    allQuestions.forEach(q => questionMap.set(q.id, q));
+
+    let score = 0;
+    session.selectedQuestionIds.forEach(qId => {
+      const q = questionMap.get(qId);
+      const studentAns = session.answers[qId];
+      if (q && studentAns && studentAns === q.correctAnswer) {
+        score += 1;
+      }
+    });
+
+    session.score = score;
+    session.totalQuestions = session.selectedQuestionIds.length || 10;
+    session.percentage = Math.round((score / session.totalQuestions) * 100);
+    session.timeTakenSeconds = timeTakenSeconds;
     session.submittedAt = now.toISOString();
-    session.timeTakenSeconds = elapsedSeconds;
-    session.status = isAutoExpiry ? 'expired' : 'submitted';
+    session.status = 'submitted';
 
-    this.setStorage(STORAGE_KEYS.SESSIONS, allSessions);
+    sessions[idx] = session;
+    this.calculateRanks(sessions, session.quizId);
+    this.setStorage(STORAGE_KEYS.SESSIONS, sessions);
 
-    // Re-calculate ranks for this quiz
-    this.recalculateRanks(quizId);
+    // Save submission to Firestore
+    setDoc(doc(firestoreDb, 'quizSessions', session.id), session, { merge: true }).catch(() => {});
 
+    this.notifyListeners();
     return session;
   }
 
-  /**
-   * Official Ranking Logic:
-   * 1. Highest Score
-   * 2. Fastest Time Taken (lowest timeTakenSeconds)
-   */
-  recalculateRanks(quizId: string): void {
-    const allSessions = this.getSessions();
-    const quizSubmissions = allSessions.filter(
-      s => s.quizId === quizId && (s.status === 'submitted' || s.status === 'expired')
-    );
+  private calculateRanks(sessions: QuizSession[], quizId: string): void {
+    const quizSessions = sessions
+      .filter(s => s.quizId === quizId && s.status === 'submitted')
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        return a.timeTakenSeconds - b.timeTakenSeconds;
+      });
 
-    quizSubmissions.sort((a, b) => {
-      if (b.score !== a.score) {
-        return b.score - a.score; // Higher score first
-      }
-      return a.timeTakenSeconds - b.timeTakenSeconds; // Faster time first
+    quizSessions.forEach((sess, index) => {
+      sess.rank = index + 1;
     });
-
-    quizSubmissions.forEach((sub, idx) => {
-      sub.rank = idx + 1;
-    });
-
-    this.setStorage(STORAGE_KEYS.SESSIONS, allSessions);
   }
 
-  // =================== WINNERS & TIE BREAK ===================
+  // =================== WINNERS ===================
 
   getWinners(): WinnerRecord[] {
     return this.getStorage<WinnerRecord[]>(STORAGE_KEYS.WINNERS, INITIAL_WINNERS);
   }
 
-  publishWinners(record: WinnerRecord, adminEmail = 'admin'): void {
+  getWinnerForQuiz(quizId: string): WinnerRecord | null {
     const winners = this.getWinners();
-    const idx = winners.findIndex(w => w.quizId === record.quizId);
-    if (idx >= 0) {
-      winners[idx] = record;
-    } else {
-      winners.unshift(record);
-    }
-    this.setStorage(STORAGE_KEYS.WINNERS, winners);
-
-    this.addAuditLog({
-      adminEmail,
-      action: 'विजेता घोषणा',
-      target: record.quizId,
-      details: `${record.first.name} प्रथम स्थान सहित विजेता प्रकाशित`
-    });
-  }
-
-  addWinner(record: WinnerRecord, adminEmail = 'admin'): void {
-    this.publishWinners(record, adminEmail);
-  }
-
-  deleteWinner(quizId: string, adminEmail = 'admin'): boolean {
-    let winners = this.getWinners();
-    const exists = winners.find(w => w.quizId === quizId);
-    if (!exists) return false;
-    winners = winners.filter(w => w.quizId !== quizId);
-    this.setStorage(STORAGE_KEYS.WINNERS, winners);
-    this.addAuditLog({
-      adminEmail,
-      action: 'विजेता रेकर्ड मेटाइयो',
-      target: quizId,
-      details: `${exists.quizTitle} को विजेता सूची हटाइयो`
-    });
-    return true;
+    return winners.find(w => w.quizId === quizId) || null;
   }
 
   saveWinnersList(winners: WinnerRecord[], adminEmail = 'admin'): void {
     this.setStorage(STORAGE_KEYS.WINNERS, winners);
+    // Push each winner to Firestore
+    for (const w of winners) {
+      setDoc(doc(firestoreDb, 'winners', w.quizId), w, { merge: true }).catch(() => {});
+    }
+
     this.addAuditLog({
       adminEmail,
       action: 'विजेता सूची सुरक्षित गरियो',
       target: 'winners_all',
       details: `${winners.length} विजेता रेकर्डहरू स्थायी सुरक्षित गरियो`
     });
+
+    this.notifyListeners();
+  }
+
+  publishWinners(winnerRecord: WinnerRecord, adminEmail = 'admin'): void {
+    const winners = this.getWinners();
+    const idx = winners.findIndex(w => w.quizId === winnerRecord.quizId);
+    if (idx >= 0) {
+      winners[idx] = winnerRecord;
+    } else {
+      winners.unshift(winnerRecord);
+    }
+    this.saveWinnersList(winners, adminEmail);
+  }
+
+  addWinner(winnerRecord: WinnerRecord, adminEmail = 'admin'): void {
+    this.publishWinners(winnerRecord, adminEmail);
+  }
+
+  deleteWinner(quizId: string, adminEmail = 'admin'): void {
+    let winners = this.getWinners();
+    winners = winners.filter(w => w.quizId !== quizId);
+    this.setStorage(STORAGE_KEYS.WINNERS, winners);
+    deleteDoc(doc(firestoreDb, 'winners', quizId)).catch(() => {});
+    this.notifyListeners();
   }
 
   getTieBreaks(): TieBreak[] {
@@ -697,12 +957,16 @@ class DataService {
     records.unshift(tieBreak);
     this.setStorage(STORAGE_KEYS.TIE_BREAKS, records);
 
+    setDoc(doc(firestoreDb, 'tieBreaks', tieBreak.tieBreakId), tieBreak, { merge: true }).catch(() => {});
+
     this.addAuditLog({
       adminEmail,
       action: 'टाई-ब्रेक ड्र',
       target: tieBreak.quizId,
       details: `स्पिनिङ ह्विलमार्फत ${tieBreak.winnerName} विजयी छानिए`
     });
+
+    this.notifyListeners();
   }
 
   // =================== AUDIT LOGS ===================
@@ -719,7 +983,9 @@ class DataService {
       ...entry,
     };
     logs.unshift(newLog);
-    this.setStorage(STORAGE_KEYS.AUDIT_LOGS, logs.slice(0, 100)); // retain last 100
+    this.setStorage(STORAGE_KEYS.AUDIT_LOGS, logs.slice(0, 100));
+
+    setDoc(doc(firestoreDb, 'auditLogs', newLog.id), newLog, { merge: true }).catch(() => {});
   }
 
   // =================== SETTINGS ===================
@@ -751,12 +1017,19 @@ class DataService {
 
   saveSettings(settings: PortalSettings, adminEmail = 'admin'): void {
     this.setStorage(STORAGE_KEYS.SETTINGS, settings);
+    this.setDraftChanges(true);
+
+    // Save to Firestore
+    setDoc(doc(firestoreDb, 'settings', 'portal'), settings, { merge: true }).catch(() => {});
+
     this.addAuditLog({
       adminEmail,
       action: 'सेटिङ अद्यावधिक',
       target: 'settings',
       details: 'क्याम्पस क्विज पोर्टल सेटिङ सुरक्षित गरियो'
     });
+
+    this.notifyListeners();
   }
 }
 

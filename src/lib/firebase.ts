@@ -1,5 +1,4 @@
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 import {
   getAuth,
   signInWithEmailAndPassword,
@@ -23,7 +22,6 @@ export const firebaseConfig = {
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "quize-c3025.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "62815879515",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:62815879515:web:8de7b15748cf6ff22a9a7e",
-  measurementId: "G-XHX6RBHH12",
 };
 
 // Initialize Firebase
@@ -36,18 +34,7 @@ export const firestoreDb: Firestore = getFirestore(app);
 export const firebaseStorage: FirebaseStorage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export let analytics: Analytics | null = null;
-if (typeof window !== "undefined") {
-  isSupported()
-    .then((supported) => {
-      if (supported) {
-        analytics = getAnalytics(app);
-      }
-    })
-    .catch(() => {
-      // Ignore analytics unsupported environment (e.g. headless/ssr)
-    });
-}
+export const analytics = null;
 
 export const isConfigured = true;
 export const config = firebaseConfig;

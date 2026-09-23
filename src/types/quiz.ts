@@ -1,4 +1,4 @@
-export type StudentStatus = 'active' | 'restricted' | 'blocked';
+export type StudentStatus = 'active' | 'suspended' | 'blocked' | 'restricted';
 
 export interface Student {
   id: string; // e.g., FSU25678

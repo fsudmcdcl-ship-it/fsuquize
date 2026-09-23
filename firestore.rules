@@ -7,99 +7,52 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-    }
-
-    function isStudentOwner(studentId) {
-      return isSignedIn() && (request.auth.uid == studentId || (resource != null && resource.data.uid == request.auth.uid));
-    }
-
-    // Students collection
+    // Students collection (Open registration & admin management)
     match /students/{studentId} {
-      allow get: if isSignedIn() && (isStudentOwner(studentId) || isAdmin());
-      allow list: if isAdmin();
-      allow create: if isSignedIn() && (
-        (request.auth.uid == studentId || isAdmin()) &&
-        request.resource.data.keys().hasAll(['id', 'name', 'rollNo', 'class', 'semester', 'phone', 'username', 'status']) &&
-        request.resource.data.name is string && request.resource.data.name.size() <= 100 &&
-        request.resource.data.phone is string && request.resource.data.phone.size() <= 15 &&
-        request.resource.data.rollNo is string && request.resource.data.rollNo.size() <= 20 &&
-        (isAdmin() || request.resource.data.status == 'active')
-      );
-      allow update: if isSignedIn() && (
-        isAdmin() ||
-        (isStudentOwner(studentId) && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profilePhoto', 'updatedAt']) &&
-         resource.data.status != 'blocked')
-      );
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasAll(['id', 'name', 'rollNo', 'class', 'semester', 'phone', 'username', 'status']);
+      allow update: if true;
+      allow delete: if true;
     }
 
     // Admins collection
     match /admins/{uid} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
     // Quizzes collection
     match /quizzes/{quizId} {
-      allow read: if true; // Publicly visible active quizzes
-      allow write: if isAdmin();
+      allow read, write: if true;
 
       // Question subcollection
       match /questions/{questionId} {
-        // Students can only see questions during active quiz without correct answers, or admins have full read
-        allow read: if isAdmin() || (isSignedIn() && !('correctAnswer' in resource.data));
-        allow write: if isAdmin();
+        allow read, write: if true;
       }
     }
 
     // Quiz Sessions (Submissions & In-progress)
     match /quizSessions/{sessionId} {
-      allow get: if isSignedIn() && (
-        isAdmin() || 
-        (resource != null && (resource.data.studentId == request.auth.uid || resource.data.uid == request.auth.uid))
-      );
-      allow list: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.studentId);
-      allow create: if isSignedIn() && (
-        (request.resource.data.studentId == request.auth.uid || isAdmin()) &&
-        request.resource.data.keys().hasAll(['id', 'quizId', 'studentId', 'startedAt', 'expiresAt', 'status'])
-      );
-      allow update: if isSignedIn() && (
-        isAdmin() || (
-          (resource.data.studentId == request.auth.uid || resource.data.uid == request.auth.uid) &&
-          resource.data.status == 'in_progress' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answers', 'submittedAt', 'status', 'timeTakenSeconds', 'score', 'percentage', 'updatedAt'])
-        )
-      );
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // Winners collection (Publicly visible leaderboard)
     match /winners/{quizId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
     // Tie-breaks collection
     match /tieBreaks/{tieBreakId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
     // Audit logs
     match /auditLogs/{logId} {
-      allow read, write: if isAdmin();
+      allow read, write: if true;
+    }
+
+    // Portal Settings
+    match /settings/{settingId} {
+      allow read, write: if true;
     }
   }
 }

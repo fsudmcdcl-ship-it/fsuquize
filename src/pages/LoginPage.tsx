@@ -64,10 +64,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Student ID */}
+          {/* Student ID / Phone / Roll */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              विद्यार्थी ID (Student ID) *
+              विद्यार्थी ID / फोन नम्बर / रोल नम्बर *
             </label>
             <div className="relative">
               <input
@@ -75,14 +75,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
                 required
                 autoComplete="username"
                 value={studentId}
-                onChange={e => setStudentId(e.target.value.toUpperCase())}
-                placeholder="उदा. FSU25678"
+                onChange={e => setStudentId(e.target.value)}
+                placeholder="उदा. FSU25678 वा 9812345678 वा 25"
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-mono font-bold tracking-wide"
               />
               <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              दर्ता गर्दा प्राप्त भएको ID (उदा. FSU25678)
+              दर्ता गर्दा प्राप्त भएको ID (उदा. FSU25678), फोन नम्बर वा रोल नम्बर प्रयोग गर्नुहोस्
             </p>
           </div>
 

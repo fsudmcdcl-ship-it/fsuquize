@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { AdminUser } from '../types/quiz';
 import {
   LayoutDashboard,
@@ -13,9 +13,21 @@ import {
   ExternalLink,
   Menu,
   X,
-  ShieldAlert
+  RefreshCw,
+  Save,
+  Radio,
+  Globe,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { formatNepalDate } from '../lib/nepaliUtils';
+import { dataService } from '../lib/dataService';
+import {
+  getAdminLanguage,
+  setAdminLanguage,
+  adminTranslations,
+  type AdminLanguage
+} from './adminTranslations';
 
 interface AdminLayoutProps {
   currentPath: string;
@@ -23,6 +35,7 @@ interface AdminLayoutProps {
   adminSlug: string;
   navigate: (path: string) => void;
   onLogout: () => void;
+  onRefresh?: () => void;
   children: React.ReactNode;
 }
 
@@ -32,25 +45,120 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   adminSlug,
   navigate,
   onLogout,
+  onRefresh,
   children,
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [lang, setLang] = useState<AdminLanguage>(getAdminLanguage);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPublishingLive, setIsPublishingLive] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
+  const [hasDrafts, setHasDrafts] = useState<boolean>(() => dataService.hasUnsavedDrafts());
+
+  const t = adminTranslations[lang];
+
+  useEffect(() => {
+    const unsub = dataService.subscribe(() => {
+      setHasDrafts(dataService.hasUnsavedDrafts());
+    });
+    return unsub;
+  }, []);
+
+  const handleLanguageToggle = () => {
+    const nextLang: AdminLanguage = lang === 'ne' ? 'en' : 'ne';
+    setLang(nextLang);
+    setAdminLanguage(nextLang);
+  };
+
+  const showToast = (type: 'success' | 'info' | 'error', message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => {
+      setNotification(null);
+    }, 4000);
+  };
+
+  const handleRefreshDatabase = async () => {
+    setIsRefreshing(true);
+    try {
+      const result = await dataService.syncFromFirestore();
+      onRefresh?.();
+      if (result.success) {
+        showToast('success', `${t.refreshedSuccess} (${result.studentCount} ${t.totalStudents.toLowerCase()})`);
+      } else {
+        showToast('info', result.error ? `${t.refreshedSuccess} (Local Cache Synchronized)` : t.refreshedSuccess);
+      }
+    } catch {
+      showToast('info', 'डाटाबेस सिङ्क गरियो (Local cache synchronized)');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleSaveDraft = () => {
+    dataService.setDraftChanges(true);
+    setHasDrafts(true);
+    showToast('info', t.draftSavedSuccess);
+  };
+
+  const handleGlobalLive = async () => {
+    setIsPublishingLive(true);
+    try {
+      const result = await dataService.publishGlobalLive(admin.email);
+      onRefresh?.();
+      setHasDrafts(false);
+      showToast('success', t.publishedLiveSuccess);
+    } catch (err) {
+      showToast('error', 'ग्लोबल लाइभ गर्न समस्या देखियो।');
+    } finally {
+      setIsPublishingLive(false);
+    }
+  };
 
   const prefix = `/${adminSlug}`;
 
   const menuItems = [
-    { label: 'ड्यासबोर्ड', path: `${prefix}/dashboard`, icon: LayoutDashboard },
-    { label: 'साप्ताहिक क्विज व्यवस्थापन', path: `${prefix}/quizzes`, icon: BookOpen },
-    { label: 'विद्यार्थी व्यवस्थापन', path: `${prefix}/students`, icon: Users },
-    { label: 'प्रश्न बैङ्क (५० प्रश्न)', path: `${prefix}/questions`, icon: HelpCircle },
-    { label: 'उत्तर तथा सबमिसन', path: `${prefix}/submissions`, icon: FileCheck2 },
-    { label: 'नतिजा तथा विजेता', path: `${prefix}/winners`, icon: Trophy },
-    { label: 'डाउनलोड / एक्सल रिपोर्ट', path: `${prefix}/reports`, icon: FileSpreadsheet },
-    { label: 'सेटिङ र फायरबेस', path: `${prefix}/settings`, icon: Settings },
+    { label: t.navDashboard, path: `${prefix}/dashboard`, icon: LayoutDashboard },
+    { label: t.navQuizzes, path: `${prefix}/quizzes`, icon: BookOpen },
+    { label: t.navStudents, path: `${prefix}/students`, icon: Users },
+    { label: t.navQuestions, path: `${prefix}/questions`, icon: HelpCircle },
+    { label: t.navSubmissions, path: `${prefix}/submissions`, icon: FileCheck2 },
+    { label: t.navWinners, path: `${prefix}/winners`, icon: Trophy },
+    { label: t.navReports, path: `${prefix}/reports`, icon: FileSpreadsheet },
+    { label: t.navSettings, path: `${prefix}/settings`, icon: Settings },
   ];
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row font-sans">
+      {/* Toast Notification Banner */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-50 animate-in fade-in slide-in-from-top-4 duration-200 max-w-md">
+          <div
+            className={`p-4 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold border ${
+              notification.type === 'success'
+                ? 'bg-emerald-900 text-emerald-100 border-emerald-700'
+                : notification.type === 'error'
+                ? 'bg-red-900 text-red-100 border-red-700'
+                : 'bg-slate-900 text-white border-slate-700'
+            }`}
+          >
+            {notification.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            ) : notification.type === 'error' ? (
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+            )}
+            <span className="flex-1">{notification.message}</span>
+            <button
+              onClick={() => setNotification(null)}
+              className="text-slate-400 hover:text-white p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Mobile Top Header */}
       <div className="md:hidden bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800 sticky top-0 z-40">
         <div className="flex items-center gap-2">
@@ -58,16 +166,34 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             🛡️
           </div>
           <div>
-            <span className="font-extrabold text-sm block">क्विज मास्टर</span>
+            <span className="font-extrabold text-sm block">{t.portalTitle}</span>
             <span className="text-[10px] text-slate-400 font-mono">/{adminSlug}</span>
           </div>
         </div>
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2 rounded-lg bg-slate-800 text-slate-200"
-        >
-          {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleLanguageToggle}
+            className="p-1.5 rounded-lg bg-slate-800 text-xs font-bold text-slate-300 border border-slate-700"
+            title="Language"
+          >
+            <Globe className="w-4 h-4 text-red-400" />
+          </button>
+          <button
+            onClick={handleRefreshDatabase}
+            disabled={isRefreshing}
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-200 hover:text-white"
+            title={t.refreshDatabase}
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-red-400' : ''}`} />
+          </button>
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 rounded-lg bg-slate-800 text-slate-200"
+          >
+            {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Sidebar Navigation */}
@@ -78,18 +204,30 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       >
         <div>
           {/* Logo Area */}
-          <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center text-white text-lg font-bold shadow-md shadow-red-600/30 shrink-0">
-              🎓
-            </div>
-            <div>
-              <div className="font-black text-white text-base tracking-tight leading-tight">
-                FSU DMC
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center text-white text-lg font-bold shadow-md shadow-red-600/30 shrink-0">
+                🎓
               </div>
-              <div className="text-[10px] text-red-400 font-bold uppercase tracking-wider">
-                क्विज मास्टर पोर्टल
+              <div>
+                <div className="font-black text-white text-base tracking-tight leading-tight">
+                  FSU DMC
+                </div>
+                <div className="text-[10px] text-red-400 font-bold uppercase tracking-wider">
+                  {t.portalTitle}
+                </div>
               </div>
             </div>
+
+            {/* Language switcher button */}
+            <button
+              onClick={handleLanguageToggle}
+              title={t.switchLanguage}
+              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-[10px] font-bold text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer"
+            >
+              <Globe className="w-3 h-3 text-red-400" />
+              <span>{lang === 'ne' ? 'EN' : 'ने'}</span>
+            </button>
           </div>
 
           {/* Navigation Links */}
@@ -121,6 +259,24 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
         {/* User Info & Actions */}
         <div className="p-4 border-t border-slate-800 space-y-3">
+          {/* Status pill in sidebar */}
+          <div className="px-2.5 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/60 text-[11px] flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${hasDrafts ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`}></span>
+              <span className={hasDrafts ? 'text-amber-300 font-medium' : 'text-emerald-300 font-medium'}>
+                {hasDrafts ? (lang === 'ne' ? 'ड्राफ्ट बाँकी' : 'Draft Pending') : (lang === 'ne' ? 'लाइभ सिङ्क' : 'Live Synced')}
+              </span>
+            </span>
+            <button
+              onClick={handleRefreshDatabase}
+              disabled={isRefreshing}
+              className="text-slate-400 hover:text-white transition"
+              title={t.refreshDatabase}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-red-400' : ''}`} />
+            </button>
+          </div>
+
           <div className="flex items-center gap-2.5 bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
             <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 shrink-0">
               QM
@@ -135,15 +291,15 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             <button
               onClick={() => navigate('/')}
               className="flex-1 py-2 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition cursor-pointer"
-              title="विद्यार्थी पोर्टल हेर्नुहोस्"
+              title={t.openStudentPortal}
             >
               <ExternalLink className="w-3 h-3" />
-              <span>विद्यार्थी पोर्टल</span>
+              <span>{t.openStudentPortal}</span>
             </button>
             <button
               onClick={onLogout}
               className="p-2 bg-red-950/60 hover:bg-red-900/60 text-red-400 rounded-lg transition cursor-pointer"
-              title="लगआउट गर्नुहोस्"
+              title={t.logout}
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -154,23 +310,74 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Top Navbar */}
-        <header className="bg-white border-b border-slate-200 px-6 py-3.5 hidden md:flex items-center justify-between sticky top-0 z-20 shadow-2xs">
-          <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-            <span>आधिकारिक क्याम्पस क्विज प्रणाली</span>
-            <span>•</span>
-            <span className="text-slate-800 font-semibold font-mono">Asia/Kathmandu</span>
+        <header className="bg-white border-b border-slate-200 px-6 py-3 hidden md:flex items-center justify-between sticky top-0 z-20 shadow-2xs">
+          {/* Left info & Status badge */}
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-slate-600 font-semibold">{t.officialSystem}</span>
+            <span className="text-slate-300">•</span>
+            {hasDrafts ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                <span>{t.statusDraftChanges}</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>{t.statusGlobalLive}</span>
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-4 text-xs">
-            <span className="text-slate-500">
-              मिति: <b className="text-slate-800">{formatNepalDate(new Date(), false)}</b>
-            </span>
+          {/* Right action controls */}
+          <div className="flex items-center gap-2.5 text-xs">
+            {/* Refresh Database button */}
+            <button
+              onClick={handleRefreshDatabase}
+              disabled={isRefreshing}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer border border-slate-200"
+              title="Pull latest data from Firebase Firestore backend"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isRefreshing ? 'animate-spin text-red-600' : ''}`} />
+              <span>{isRefreshing ? t.refreshing : t.refreshDatabase}</span>
+            </button>
+
+            {/* Save Draft button */}
+            <button
+              onClick={handleSaveDraft}
+              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer border border-amber-200"
+              title="Save current modifications locally as draft"
+            >
+              <Save className="w-3.5 h-3.5 text-amber-600" />
+              <span>{t.saveDraft}</span>
+            </button>
+
+            {/* Global Live button */}
+            <button
+              onClick={handleGlobalLive}
+              disabled={isPublishingLive}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-sm shadow-emerald-600/30"
+              title="Publish all changes globally live to Firebase Firestore"
+            >
+              <Radio className={`w-3.5 h-3.5 ${isPublishingLive ? 'animate-pulse text-emerald-200' : ''}`} />
+              <span>{isPublishingLive ? t.publishingLive : t.publishGlobalLive}</span>
+            </button>
+
+            {/* Language toggle button */}
+            <button
+              onClick={handleLanguageToggle}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer border border-slate-200"
+              title={t.switchLanguage}
+            >
+              <Globe className="w-3.5 h-3.5 text-red-600" />
+              <span>{lang === 'ne' ? 'English' : 'नेपाली'}</span>
+            </button>
+
             <button
               onClick={() => navigate('/')}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg flex items-center gap-1.5 transition cursor-pointer"
+              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
             >
-              <ExternalLink className="w-3 h-3 text-slate-500" />
-              <span>विद्यार्थी पोर्टल खोल्नुहोस्</span>
+              <ExternalLink className="w-3 h-3 text-slate-300" />
+              <span>{t.openStudentPortal}</span>
             </button>
           </div>
         </header>

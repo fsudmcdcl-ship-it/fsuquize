@@ -195,6 +195,15 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
             >
               ड्यासबोर्डमा जानुहोस्
             </button>
+            <button
+              onClick={() => {
+                dataService.logoutStudent();
+                navigate('/login');
+              }}
+              className="w-full py-2 px-4 text-slate-500 hover:text-red-600 font-semibold text-xs rounded-xl transition cursor-pointer"
+            >
+              लगआउट गर्नुहोस् र पुनः लगइन जाँच गर्नुहोस् (Log out & test re-login)
+            </button>
           </div>
         </div>
       </div>

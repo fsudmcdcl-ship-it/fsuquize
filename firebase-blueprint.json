@@ -125,9 +125,27 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "adminUid", "action", "timestamp"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "type": "object",
+      "description": "Campus quiz portal settings",
+      "properties": {
+        "campusName": { "type": "string" },
+        "subTitle": { "type": "string" },
+        "quizDurationMinutes": { "type": "number" },
+        "quizAvailabilityHours": { "type": "number" },
+        "questionsPerStudent": { "type": "number" },
+        "questionBankSize": { "type": "number" },
+        "adminSlug": { "type": "string" }
+      }
     }
   },
   "firestore": {
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "Global campus portal settings and configuration"
+    },
     "/students/{studentId}": {
       "schema": "Student",
       "description": "Student profiles and credentials"
