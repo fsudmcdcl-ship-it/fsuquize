@@ -16,6 +16,8 @@ import {
   isConfigured,
   firestoreDb,
   realtimeDb,
+  auth,
+  studentAuth,
   logoutAdminFromFirebase,
   createStudentWithFirebase,
   loginStudentWithFirebase,
@@ -33,7 +35,8 @@ import {
   query,
   where,
 } from 'firebase/firestore';
-import { ref, get, child, update } from 'firebase/database';
+import { ref, get, child, update, set } from 'firebase/database';
+import { signOut } from 'firebase/auth';
 
 const STORAGE_KEYS = {
   STUDENTS: 'fsudmc_students_v2',
@@ -217,11 +220,27 @@ class DataService {
       logoutDeviceSession(student.id).catch(() => {});
     }
     this.setCurrentStudent(null);
+    signOut(studentAuth).catch(() => {});
+    if (!this.getCurrentAdmin()) {
+      signOut(auth).catch(() => {});
+    }
+    this.notifyListeners();
   }
 
   logoutAdmin(): void {
     this.setCurrentAdmin(null);
     logoutAdminFromFirebase().catch(() => {});
+  }
+
+  isAdminUser(email?: string | null): boolean {
+    if (!email) return false;
+    const clean = email.trim().toLowerCase();
+    return clean === 'admin@fsudmc.com' || clean.includes('admin') || clean === 'info@fsudmc.com';
+  }
+
+  isStudentApproved(student: Student | null): boolean {
+    if (!student) return false;
+    return student.status === 'approved' || student.status === 'active';
   }
 
   setAdminFromFirebase(firebaseUser: { uid: string; email: string | null; displayName: string | null }): AdminUser {
@@ -310,21 +329,27 @@ class DataService {
 
     const studentAuthUid = authResult.user?.uid;
     const authEmail = formatStudentAuthEmail(studentId);
+    const now = new Date().toISOString();
 
     const newStudent: Student = {
       id: studentId,
+      studentId: studentId,
       ...(studentAuthUid ? { uid: studentAuthUid } : {}),
       name: params.name.trim(),
+      email: authEmail,
       rollNo: rollNoClean,
       class: params.class,
       semester: params.semester,
       phone: phoneClean,
       username: studentId,
-      passcode: params.passcode,
       authEmail,
+      role: 'student',
       ...(params.profilePhoto ? { profilePhoto: params.profilePhoto } : {}),
-      status: 'active',
-      createdAt: new Date().toISOString(),
+      status: 'pending', // REQUIREMENT: Default status is ALWAYS 'pending'!
+      appliedAt: now,
+      approvedAt: null,
+      approvedBy: null,
+      createdAt: now,
     };
 
     // 2. Persist to Firebase Firestore (Awaited with error tracking)
@@ -346,7 +371,7 @@ class DataService {
     students.push(newStudent);
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
 
-    // Auto log-in student
+    // Set as current student in pending state
     this.setCurrentStudent(newStudent);
     this.notifyListeners();
 
@@ -397,8 +422,29 @@ class DataService {
       };
     }
 
+    // Always fetch live document from Firestore so any recent admin approval is immediately reflected!
+    try {
+      const liveSnap = await getDoc(doc(firestoreDb, 'students', student.id));
+      if (liveSnap.exists()) {
+        const liveData = liveSnap.data() as Student;
+        student = { ...student, ...liveData };
+        const currentList = this.getStudents();
+        const sIdx = currentList.findIndex(s => s.id === student!.id);
+        if (sIdx >= 0) {
+          currentList[sIdx] = student;
+          this.setStorage(STORAGE_KEYS.STUDENTS, currentList);
+        }
+      }
+    } catch (liveErr) {
+      console.debug('Notice: Firestore live check on login:', liveErr);
+    }
+
     if (student.status === 'blocked') {
       return { success: false, error: 'तपाईंको विद्यार्थी खाता प्रशासकद्वारा ब्लक गरिएको छ। कृपया क्याम्पस प्रशासनसँग सम्पर्क गर्नुहोस्।' };
+    }
+
+    if (student.status === 'rejected') {
+      return { success: false, error: 'तपाईंको विद्यार्थी दर्ता आवेदन क्याम्पस प्रशासनद्वारा अस्वीकृत गरिएको छ। कृपया क्याम्पसमा सम्पर्क गर्नुहोस्।' };
     }
 
     if (student.status === 'suspended') {
@@ -540,20 +586,170 @@ class DataService {
     return true;
   }
 
+  async approveStudentApplication(
+    studentId: string,
+    adminUid = 'admin',
+    adminEmail = 'admin@fsudmc.com'
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const now = new Date().toISOString();
+      const updates = {
+        status: 'approved' as StudentStatus,
+        approvedAt: now,
+        approvedBy: adminUid,
+        updatedAt: now,
+      };
+
+      // 1. Await confirmation from Firestore!
+      await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
+
+      const student = this.getStudents().find(s => s.id === studentId);
+      if (student?.uid && student.uid !== studentId) {
+        await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
+      }
+
+      // 2. Update Realtime DB
+      set(child(ref(realtimeDb), `students/${studentId}/status`), 'approved').catch(() => {});
+      set(child(ref(realtimeDb), `students/${studentId}/approvedAt`), now).catch(() => {});
+      set(child(ref(realtimeDb), `students/${studentId}/approvedBy`), adminUid).catch(() => {});
+
+      // 3. Update local cache
+      const students = this.getStudents();
+      const idx = students.findIndex(s => s.id === studentId);
+      if (idx >= 0) {
+        students[idx] = {
+          ...students[idx],
+          ...updates,
+        };
+        this.setStorage(STORAGE_KEYS.STUDENTS, students);
+      }
+
+      // If current student session matches, update session
+      const cur = this.getCurrentStudent();
+      if (cur && cur.id === studentId) {
+        this.setCurrentStudent({ ...cur, ...updates });
+      }
+
+      this.addAuditLog({
+        adminEmail,
+        action: 'विद्यार्थी आवेदन स्वीकृत (Approved)',
+        target: studentId,
+        details: `विद्यार्थी ${student?.name || studentId} को खाता स्वीकृत गरियो`
+      });
+
+      this.notifyListeners();
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('approveStudentApplication error:', err);
+      return { success: false, error: msg };
+    }
+  }
+
+  async rejectStudentApplication(
+    studentId: string,
+    adminUid = 'admin',
+    adminEmail = 'admin@fsudmc.com'
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const now = new Date().toISOString();
+      const updates = {
+        status: 'rejected' as StudentStatus,
+        rejectedAt: now,
+        rejectedBy: adminUid,
+        updatedAt: now,
+      };
+
+      // 1. Await confirmation from Firestore!
+      await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
+
+      const student = this.getStudents().find(s => s.id === studentId);
+      if (student?.uid && student.uid !== studentId) {
+        await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
+      }
+
+      // 2. Update Realtime DB
+      set(child(ref(realtimeDb), `students/${studentId}/status`), 'rejected').catch(() => {});
+
+      // 3. Update local cache
+      const students = this.getStudents();
+      const idx = students.findIndex(s => s.id === studentId);
+      if (idx >= 0) {
+        students[idx] = {
+          ...students[idx],
+          ...updates,
+        };
+        this.setStorage(STORAGE_KEYS.STUDENTS, students);
+      }
+
+      const cur = this.getCurrentStudent();
+      if (cur && cur.id === studentId) {
+        this.setCurrentStudent({ ...cur, ...updates });
+      }
+
+      this.addAuditLog({
+        adminEmail,
+        action: 'विद्यार्थी आवेदन अस्वीकृत (Rejected)',
+        target: studentId,
+        details: `विद्यार्थी ${student?.name || studentId} को खाता अस्वीकृत गरियो`
+      });
+
+      this.notifyListeners();
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('rejectStudentApplication error:', err);
+      return { success: false, error: msg };
+    }
+  }
+
+  async checkStudentApprovalStatus(studentId: string): Promise<Student | null> {
+    try {
+      const docSnap = await getDoc(doc(firestoreDb, 'students', studentId));
+      if (docSnap.exists()) {
+        const remote = docSnap.data() as Student;
+        const students = this.getStudents();
+        const idx = students.findIndex(s => s.id === studentId);
+        if (idx >= 0) {
+          students[idx] = { ...students[idx], ...remote };
+          this.setStorage(STORAGE_KEYS.STUDENTS, students);
+        }
+        const cur = this.getCurrentStudent();
+        if (cur && cur.id === studentId) {
+          this.setCurrentStudent({ ...cur, ...remote });
+        }
+        this.notifyListeners();
+        return remote;
+      }
+    } catch (err) {
+      console.warn('checkStudentApprovalStatus notice:', err);
+    }
+    return null;
+  }
+
   // =================== FIRESTORE & FIREBASE PERSISTENCE METHODS ===================
 
   async saveStudentToFirestore(
     student: Student
   ): Promise<{ success: boolean; error?: string; technicalError?: string }> {
     try {
-      // Strip any undefined keys so Firestore doesn't reject the payload
+      // Strip any undefined keys AND passcode so plaintext password is NEVER stored in Firestore
       const sanitized: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(student)) {
-        if (v !== undefined) {
+        if (v !== undefined && k !== 'passcode') {
           sanitized[k] = v;
         }
       }
+      sanitized.role = sanitized.role || 'student';
+      sanitized.status = sanitized.status || 'pending';
+      if (!sanitized.appliedAt) {
+        sanitized.appliedAt = new Date().toISOString();
+      }
+
       await setDoc(doc(firestoreDb, 'students', student.id), sanitized, { merge: true });
+      if (student.uid && student.uid !== student.id) {
+        await setDoc(doc(firestoreDb, 'students', student.uid), sanitized, { merge: true }).catch(() => {});
+      }
       return { success: true };
     } catch (err: unknown) {
       const fbError = err as { code?: string; message?: string };
@@ -579,7 +775,8 @@ class DataService {
         semester: student.semester,
         phone: student.phone,
         username: student.username,
-        status: student.status,
+        status: student.status || 'pending',
+        appliedAt: student.appliedAt || student.createdAt,
         createdAt: student.createdAt,
       });
       return { success: true };
@@ -730,6 +927,24 @@ class DataService {
         this.setStorage(STORAGE_KEYS.SESSIONS, firestoreSessions);
       }
 
+      // 6. Questions collection
+      try {
+        const questionsSnap = await getDocs(collection(firestoreDb, 'questions'));
+        if (!questionsSnap.empty) {
+          const firestoreQuestions: Question[] = [];
+          questionsSnap.forEach(d => {
+            firestoreQuestions.push(d.data() as Question);
+          });
+          const localQuestions = this.getQuestions();
+          const qMap = new Map<string, Question>();
+          for (const q of localQuestions) qMap.set(q.id, q);
+          for (const q of firestoreQuestions) qMap.set(q.id, q);
+          this.setStorage(STORAGE_KEYS.QUESTIONS, Array.from(qMap.values()));
+        }
+      } catch (qErr) {
+        console.warn('Questions sync notice:', qErr);
+      }
+
       const now = new Date().toISOString();
       this.setLastSyncedAt(now);
       this.setDraftChanges(false);
@@ -749,10 +964,19 @@ class DataService {
    */
   async publishGlobalLive(adminEmail = 'admin@fsudmc.com'): Promise<{ success: boolean; message: string }> {
     try {
-      // 1. Push all students
+      // 1. Push all students (NEVER store plaintext passcodes in Firestore!)
       const students = this.getStudents();
       for (const s of students) {
-        await setDoc(doc(firestoreDb, 'students', s.id), s, { merge: true });
+        const sanitized: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(s)) {
+          if (v !== undefined && k !== 'passcode') {
+            sanitized[k] = v;
+          }
+        }
+        await setDoc(doc(firestoreDb, 'students', s.id), sanitized, { merge: true });
+        if (s.uid && s.uid !== s.id) {
+          await setDoc(doc(firestoreDb, 'students', s.uid), sanitized, { merge: true }).catch(() => {});
+        }
       }
 
       // 2. Push all quizzes
@@ -761,11 +985,20 @@ class DataService {
         await setDoc(doc(firestoreDb, 'quizzes', q.id), q, { merge: true });
       }
 
-      // 3. Push portal settings
+      // 3. Push all questions
+      const questions = this.getQuestions();
+      for (const q of questions) {
+        await setDoc(doc(firestoreDb, 'questions', q.id), q, { merge: true });
+        if (q.quizId) {
+          await setDoc(doc(firestoreDb, 'quizzes', q.quizId, 'questions', q.id), q, { merge: true });
+        }
+      }
+
+      // 4. Push portal settings
       const settings = this.getSettings();
       await setDoc(doc(firestoreDb, 'settings', 'portal'), settings, { merge: true });
 
-      // 4. Push winners
+      // 5. Push winners
       const winners = this.getWinners();
       for (const w of winners) {
         await setDoc(doc(firestoreDb, 'winners', w.quizId), w, { merge: true });
@@ -779,7 +1012,7 @@ class DataService {
         adminEmail,
         action: 'ग्लोबल लाइभ प्रकाशित (Global Live)',
         target: 'firestore_all',
-        details: 'सबै विद्यार्थी विवरण, क्विज तथा सेटिङ क्लाउड ब्याकइन्डमा प्रत्यक्ष प्रकाशित गरियो'
+        details: 'सबै विद्यार्थी विवरण, प्रश्न, क्विज तथा सेटिङ क्लाउड ब्याकइन्डमा प्रत्यक्ष प्रकाशित गरियो'
       });
 
       this.notifyListeners();
@@ -902,6 +1135,14 @@ class DataService {
     this.setStorage(STORAGE_KEYS.QUESTIONS, questions);
     this.setDraftChanges(true);
 
+    // Persist to Firestore: global questions collection and quiz questions subcollection
+    setDoc(doc(firestoreDb, 'questions', question.id), question, { merge: true }).catch(err => {
+      console.warn('Firestore question save error:', err);
+    });
+    if (question.quizId) {
+      setDoc(doc(firestoreDb, 'quizzes', question.quizId, 'questions', question.id), question, { merge: true }).catch(() => {});
+    }
+
     this.addAuditLog({
       adminEmail,
       action: 'प्रश्न सुरक्षित',
@@ -914,9 +1155,17 @@ class DataService {
 
   deleteQuestion(questionId: string, adminEmail = 'admin'): void {
     let questions = this.getQuestions();
+    const targetQ = questions.find(q => q.id === questionId);
     questions = questions.filter(q => q.id !== questionId);
     this.setStorage(STORAGE_KEYS.QUESTIONS, questions);
     this.setDraftChanges(true);
+
+    deleteDoc(doc(firestoreDb, 'questions', questionId)).catch(err => {
+      console.warn('Firestore question delete notice:', err);
+    });
+    if (targetQ?.quizId) {
+      deleteDoc(doc(firestoreDb, 'quizzes', targetQ.quizId, 'questions', questionId)).catch(() => {});
+    }
 
     this.addAuditLog({
       adminEmail,
@@ -944,6 +1193,12 @@ class DataService {
   startQuizSession(arg1: Student | Quiz, arg2: Student | Quiz): QuizSession {
     const student = ('rollNo' in arg1 ? arg1 : arg2) as Student;
     const quiz = ('durationMinutes' in arg1 ? arg1 : arg2) as Quiz;
+
+    // Requirement: Check approved status before allowing session creation
+    if (!this.isStudentApproved(student)) {
+      throw new Error('तपाईंको खाता अझै स्वीकृत भएको छैन। प्रशासकीय स्वीकृतिपछि मात्र क्विज सुरु गर्न सकिनेछ।');
+    }
+
     const existing = this.getStudentSession(quiz.id, student.id);
     if (existing) return existing;
 
@@ -956,6 +1211,7 @@ class DataService {
 
     const newSession: QuizSession = {
       id: `${quiz.id}_${student.id}`,
+      uid: student.uid || student.id,
       quizId: quiz.id,
       studentId: student.id,
       studentName: student.name,

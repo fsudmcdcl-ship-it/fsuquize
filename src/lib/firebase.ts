@@ -221,6 +221,23 @@ export async function createStudentWithFirebase(
 
   try {
     const cred = await createUserWithEmailAndPassword(studentAuth, email, password);
+    
+    // Check if an admin is currently logged into the primary auth instance
+    const isPrimaryAdminLoggedIn = Boolean(
+      auth.currentUser &&
+      (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email?.includes("admin"))
+    );
+
+    // If no admin is active on primary auth, sign the student into primary auth as well
+    // so that Firestore security rules receive request.auth.uid
+    if (!isPrimaryAdminLoggedIn) {
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (primaryErr) {
+        console.warn("Notice: Primary auth sync optional:", primaryErr);
+      }
+    }
+
     return { success: true, user: cred.user };
   } catch (err: unknown) {
     const fbError = err as { code?: string; message?: string };
@@ -233,6 +250,15 @@ export async function createStudentWithFirebase(
       // Account exists in Auth, try sign in with same credentials
       try {
         const signinCred = await signInWithEmailAndPassword(studentAuth, email, password);
+        const isPrimaryAdminLoggedIn = Boolean(
+          auth.currentUser &&
+          (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email?.includes("admin"))
+        );
+        if (!isPrimaryAdminLoggedIn) {
+          try {
+            await signInWithEmailAndPassword(auth, email, password);
+          } catch {}
+        }
         return { success: true, user: signinCred.user };
       } catch (signInErr) {
         console.warn("Student account already exists in Auth but signin failed:", signInErr);
@@ -269,6 +295,22 @@ export async function loginStudentWithFirebase(
 
   try {
     const cred = await signInWithEmailAndPassword(studentAuth, email, password);
+
+    // If no admin is active on primary auth, also sign in primary auth
+    // so that Firestore security rules receive request.auth.uid
+    const isPrimaryAdminLoggedIn = Boolean(
+      auth.currentUser &&
+      (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email?.includes("admin"))
+    );
+
+    if (!isPrimaryAdminLoggedIn) {
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (primaryErr) {
+        console.warn("Notice: Primary auth sync optional:", primaryErr);
+      }
+    }
+
     return { success: true, user: cred.user };
   } catch (err: unknown) {
     const fbError = err as { code?: string; message?: string };

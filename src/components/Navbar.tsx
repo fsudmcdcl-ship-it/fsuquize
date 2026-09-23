@@ -26,14 +26,22 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
     return () => clearInterval(timer);
   }, []);
 
+  const isPending = student?.status === 'pending';
+
   const navItems = student
-    ? [
-        { label: 'ड्यासबोर्ड', path: '/dashboard', icon: BarChart2 },
-        { label: 'आजको क्विज', path: '/todays-quize', icon: BookOpen },
-        { label: 'विजेता सूची', path: '/winner-list', icon: Trophy },
-        { label: 'मेरो स्थिति', path: '/my-status', icon: CheckCircle },
-        { label: 'प्रोफाइल', path: '/profile', icon: User },
-      ]
+    ? isPending
+      ? [
+          { label: 'गृहपृष्ठ', path: '/', icon: Award },
+          { label: 'आवेदन स्थिति', path: '/pending', icon: Clock },
+          { label: 'विजेता सूची', path: '/winner-list', icon: Trophy },
+        ]
+      : [
+          { label: 'ड्यासबोर्ड', path: '/dashboard', icon: BarChart2 },
+          { label: 'आजको क्विज', path: '/todays-quize', icon: BookOpen },
+          { label: 'विजेता सूची', path: '/winner-list', icon: Trophy },
+          { label: 'मेरो स्थिति', path: '/my-status', icon: CheckCircle },
+          { label: 'प्रोफाइल', path: '/profile', icon: User },
+        ]
     : [
         { label: 'गृहपृष्ठ', path: '/', icon: Award },
         { label: 'आजको क्विज', path: '/todays-quize', icon: BookOpen },
@@ -84,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
         <div className="flex justify-between items-center h-16 sm:h-20">
           {/* Logo / Branding */}
           <div
-            onClick={() => handleNav(student ? '/dashboard' : '/')}
+            onClick={() => handleNav(student ? (isPending ? '/pending' : '/dashboard') : '/')}
             className="flex items-center gap-3 cursor-pointer group"
           >
             <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-red-600 via-rose-600 to-amber-500 flex items-center justify-center text-white font-black text-2xl shadow-md shadow-red-500/25 group-hover:scale-105 transition-transform">
@@ -151,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
             {student && (
               <div className="flex items-center gap-2 ml-3 pl-3 border-l border-slate-200">
                 <div
-                  onClick={() => handleNav('/profile')}
+                  onClick={() => handleNav(isPending ? '/pending' : '/profile')}
                   className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-slate-100 cursor-pointer"
                 >
                   <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 border border-slate-300">
@@ -163,7 +171,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
                   </div>
                   <div className="text-left hidden xl:block">
                     <div className="text-xs font-bold text-slate-800 leading-tight">{student.name}</div>
-                    <div className="text-[10px] text-slate-500 font-mono">{student.id}</div>
+                    {isPending ? (
+                      <span className="text-[9px] text-amber-800 font-bold bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
+                        Pending
+                      </span>
+                    ) : (
+                      <div className="text-[10px] text-slate-500 font-mono">{student.id}</div>
+                    )}
                   </div>
                 </div>
 
@@ -182,7 +196,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
           <div className="flex items-center gap-2 md:hidden">
             {student && (
               <div
-                onClick={() => handleNav('/profile')}
+                onClick={() => handleNav(isPending ? '/pending' : '/profile')}
                 className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 border border-slate-300 cursor-pointer"
               >
                 <img
@@ -210,6 +224,11 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
               <div>
                 <p className="text-sm font-bold text-slate-900">{student.name}</p>
                 <p className="text-xs text-slate-500 font-mono">ID: {student.id} | {student.class}</p>
+                {isPending && (
+                  <span className="inline-block mt-0.5 text-[10px] text-amber-800 font-bold bg-amber-100 px-2 py-0.5 rounded border border-amber-200">
+                    स्वीकृति पर्खिरहेको (Pending Approval)
+                  </span>
+                )}
               </div>
               <button
                 onClick={() => {

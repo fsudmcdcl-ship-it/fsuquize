@@ -16,6 +16,7 @@ import { QuizSessionPage } from './pages/QuizSessionPage';
 import { WinnerListPage } from './pages/WinnerListPage';
 import { MyStatusPage } from './pages/MyStatusPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { AccountPendingPage } from './pages/AccountPendingPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 // Admin Portal Components & Pages
@@ -72,6 +73,7 @@ function parseCurrentRoute(): string {
   const recognizedRoutes = [
     '/login',
     '/register',
+    '/pending',
     '/dashboard',
     '/todays-quize',
     '/quiz/',
@@ -388,6 +390,11 @@ export default function App() {
         onStudentRegistered={student => {
           setCurrentStudent(student);
           refreshData();
+          if (student.status === 'pending') {
+            navigate('/pending');
+          } else {
+            navigate('/dashboard');
+          }
         }}
       />
     );
@@ -398,9 +405,51 @@ export default function App() {
         onStudentLoggedIn={student => {
           setCurrentStudent(student);
           refreshData();
+          if (student.status === 'pending') {
+            navigate('/pending');
+          } else {
+            navigate('/dashboard');
+          }
         }}
       />
     );
+  } else if (currentPath === '/pending') {
+    if (!currentStudent) {
+      studentPageContent = (
+        <LoginPage
+          navigate={navigate}
+          onStudentLoggedIn={student => {
+            setCurrentStudent(student);
+            refreshData();
+            if (student.status === 'pending') {
+              navigate('/pending');
+            } else {
+              navigate('/dashboard');
+            }
+          }}
+        />
+      );
+    } else if (currentStudent.status !== 'pending') {
+      studentPageContent = (
+        <DashboardPage
+          student={currentStudent}
+          activeQuiz={activeQuiz}
+          studentSession={studentActiveSession}
+          allStudentSessions={studentSessions}
+          navigate={navigate}
+          onLogout={handleStudentLogout}
+        />
+      );
+    } else {
+      studentPageContent = (
+        <AccountPendingPage
+          student={currentStudent}
+          navigate={navigate}
+          onLogout={handleStudentLogout}
+          onStatusUpdated={() => refreshData()}
+        />
+      );
+    }
   } else if (currentPath === '/dashboard') {
     if (!currentStudent) {
       studentPageContent = (
@@ -409,7 +458,21 @@ export default function App() {
           onStudentLoggedIn={student => {
             setCurrentStudent(student);
             refreshData();
+            if (student.status === 'pending') {
+              navigate('/pending');
+            } else {
+              navigate('/dashboard');
+            }
           }}
+        />
+      );
+    } else if (currentStudent.status === 'pending') {
+      studentPageContent = (
+        <AccountPendingPage
+          student={currentStudent}
+          navigate={navigate}
+          onLogout={handleStudentLogout}
+          onStatusUpdated={() => refreshData()}
         />
       );
     } else {
@@ -425,14 +488,25 @@ export default function App() {
       );
     }
   } else if (currentPath === '/todays-quize') {
-    studentPageContent = (
-      <TodaysQuizPage
-        navigate={navigate}
-        student={currentStudent}
-        activeQuiz={activeQuiz}
-        studentSession={studentActiveSession}
-      />
-    );
+    if (currentStudent && currentStudent.status === 'pending') {
+      studentPageContent = (
+        <AccountPendingPage
+          student={currentStudent}
+          navigate={navigate}
+          onLogout={handleStudentLogout}
+          onStatusUpdated={() => refreshData()}
+        />
+      );
+    } else {
+      studentPageContent = (
+        <TodaysQuizPage
+          navigate={navigate}
+          student={currentStudent}
+          activeQuiz={activeQuiz}
+          studentSession={studentActiveSession}
+        />
+      );
+    }
   } else if (currentPath.startsWith('/quiz/')) {
     const quizId = currentPath.replace('/quiz/', '') || activeQuiz?.id || 'quiz_week_12';
     if (!currentStudent) {
@@ -442,7 +516,21 @@ export default function App() {
           onStudentLoggedIn={student => {
             setCurrentStudent(student);
             refreshData();
+            if (student.status === 'pending') {
+              navigate('/pending');
+            } else {
+              navigate('/dashboard');
+            }
           }}
+        />
+      );
+    } else if (currentStudent.status === 'pending') {
+      studentPageContent = (
+        <AccountPendingPage
+          student={currentStudent}
+          navigate={navigate}
+          onLogout={handleStudentLogout}
+          onStatusUpdated={() => refreshData()}
         />
       );
     } else {
@@ -471,7 +559,21 @@ export default function App() {
           onStudentLoggedIn={student => {
             setCurrentStudent(student);
             refreshData();
+            if (student.status === 'pending') {
+              navigate('/pending');
+            } else {
+              navigate('/dashboard');
+            }
           }}
+        />
+      );
+    } else if (currentStudent.status === 'pending') {
+      studentPageContent = (
+        <AccountPendingPage
+          student={currentStudent}
+          navigate={navigate}
+          onLogout={handleStudentLogout}
+          onStatusUpdated={() => refreshData()}
         />
       );
     } else {
@@ -492,7 +594,21 @@ export default function App() {
           onStudentLoggedIn={student => {
             setCurrentStudent(student);
             refreshData();
+            if (student.status === 'pending') {
+              navigate('/pending');
+            } else {
+              navigate('/dashboard');
+            }
           }}
+        />
+      );
+    } else if (currentStudent.status === 'pending') {
+      studentPageContent = (
+        <AccountPendingPage
+          student={currentStudent}
+          navigate={navigate}
+          onLogout={handleStudentLogout}
+          onStatusUpdated={() => refreshData()}
         />
       );
     } else {

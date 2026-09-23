@@ -2,19 +2,25 @@
   "entities": {
     "Student": {
       "title": "Student",
-      "description": "Registered campus student profile at FSU DMC",
+      "description": "Registered campus student profile at FSU DMC with approval workflow",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 32 },
+        "studentId": { "type": "string", "maxLength": 32 },
+        "uid": { "type": "string", "maxLength": 128 },
         "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "format": "email" },
         "rollNo": { "type": "string", "maxLength": 20 },
         "class": { "type": "string", "maxLength": 50 },
         "semester": { "type": "string", "maxLength": 30 },
         "phone": { "type": "string", "maxLength": 15 },
         "username": { "type": "string", "maxLength": 32 },
-        "passcode": { "type": "string", "maxLength": 64 },
+        "role": { "type": "string", "enum": ["student"] },
         "profilePhoto": { "type": "string", "maxLength": 200000 },
-        "status": { "type": "string", "enum": ["active", "restricted", "blocked"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "active", "suspended", "blocked", "restricted"] },
+        "appliedAt": { "type": "string", "format": "date-time" },
+        "approvedAt": { "type": "string", "format": "date-time" },
+        "approvedBy": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "rollNo", "class", "semester", "phone", "username", "status"]
@@ -161,6 +167,10 @@
     "/quizzes/{quizId}/questions/{questionId}": {
       "schema": "Question",
       "description": "Questions organized into 5 sets per quiz"
+    },
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Global question bank across campus weekly quizzes"
     },
     "/quizSessions/{quizSessionId}": {
       "schema": "QuizSession",

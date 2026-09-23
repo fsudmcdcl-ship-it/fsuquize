@@ -43,7 +43,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
       }
 
       onStudentLoggedIn(result.student);
-      navigate('/dashboard');
+      if (result.student.status === 'pending') {
+        navigate('/pending');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err: unknown) {
       setIsSubmitting(false);
       console.error('Unhandled login exception:', err);

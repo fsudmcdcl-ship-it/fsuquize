@@ -4,16 +4,16 @@
     ".write": false,
 
     "students": {
-      ".indexOn": ["phone", "rollNo", "status"],
+      ".indexOn": ["phone", "rollNo", "status", "uid", "studentId"],
       ".read": true,
       "$studentId": {
         ".read": true,
-        ".write": true,
+        ".write": "auth != null",
         "activeSessions": {
           ".read": true,
           "$deviceId": {
             ".read": true,
-            ".write": true
+            ".write": "auth != null"
           }
         }
       }
@@ -29,12 +29,18 @@
       }
     },
 
+    "questions": {
+      ".indexOn": ["quizId", "setNumber"],
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
     "quizSessions": {
-      ".indexOn": ["studentId", "quizId", "score", "submittedAt"],
+      ".indexOn": ["studentId", "quizId", "score", "submittedAt", "status"],
       ".read": true,
       "$sessionId": {
         ".read": true,
-        ".write": "auth != null || !data.exists() || data.child('completed').val() != true"
+        ".write": "auth != null"
       }
     },
 

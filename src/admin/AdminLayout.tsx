@@ -120,11 +120,12 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   };
 
   const prefix = `/${adminSlug}`;
+  const pendingCount = dataService.getStudents().filter(s => s.status === 'pending').length;
 
   const menuItems = [
     { label: t.navDashboard, path: `${prefix}/dashboard`, icon: LayoutDashboard },
     { label: t.navQuizzes, path: `${prefix}/quizzes`, icon: BookOpen },
-    { label: t.navStudents, path: `${prefix}/students`, icon: Users },
+    { label: t.navStudents, path: `${prefix}/students`, icon: Users, badge: pendingCount > 0 ? pendingCount : undefined },
     { label: t.navQuestions, path: `${prefix}/questions`, icon: HelpCircle },
     { label: t.navSubmissions, path: `${prefix}/submissions`, icon: FileCheck2 },
     { label: t.navWinners, path: `${prefix}/winners`, icon: Trophy },
@@ -248,14 +249,21 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                     navigate(item.path);
                     setSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer text-left ${
+                  className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer text-left ${
                     isActive
                       ? 'bg-red-600 text-white font-bold shadow-sm shadow-red-600/30'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                   }`}
                 >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span>{item.label}</span>
+                  <div className="flex items-center gap-3 truncate">
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                  {item.badge !== undefined && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-slate-950 shrink-0 shadow-xs">
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}

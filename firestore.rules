@@ -7,49 +7,141 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Students collection (Open registration & admin management)
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && (
+          request.auth.token.email == 'admin@fsudmc.com' ||
+          request.auth.token.email.matches('^admin.*@fsudmc\\.com$') ||
+          request.auth.token.email.matches('^admin.*@.*')
+        ))
+      );
+    }
+
+    function isApprovedStudent() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        (
+          exists(/databases/$(database)/documents/students/$(request.auth.uid)) &&
+          (
+            get(/databases/$(database)/documents/students/$(request.auth.uid)).data.status == 'approved' ||
+            get(/databases/$(database)/documents/students/$(request.auth.uid)).data.status == 'active'
+          )
+        )
+      );
+    }
+
+    // Students collection
+    // - Reading is allowed for student ID lookup and campus administration
+    // - Registration is permitted with status == 'pending'
+    // - Normal students CANNOT change their status, approve themselves or others
+    // - Only administrators can approve, reject, block or delete student accounts
     match /students/{studentId} {
-      allow read, write: if true;
+      allow read: if true;
+      
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (
+          request.resource.data.status == 'pending' &&
+          (request.resource.data.uid == request.auth.uid || !('uid' in request.resource.data))
+        )
+      );
+
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        (
+          (resource != null && resource.data.uid == request.auth.uid) ||
+          request.auth.uid == studentId
+        ) &&
+        request.resource.data.status == resource.data.status &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'role', 'approvedAt', 'approvedBy'])
+      );
+
+      allow delete: if isAdmin();
     }
 
     // Admins collection
     match /admins/{uid} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == uid);
     }
 
     // Quizzes collection
+    // Published quizzes metadata is readable
     match /quizzes/{quizId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
 
       // Question subcollection
+      // Questions are only readable by administrators or approved students
       match /questions/{questionId} {
-        allow read, write: if true;
+        allow read: if isAdmin() || isApprovedStudent();
+        allow write: if isAdmin();
       }
     }
 
+    // Root Questions collection (Global Question Bank)
+    match /questions/{questionId} {
+      allow read: if isAdmin() || isApprovedStudent();
+      allow write: if isAdmin();
+    }
+
     // Quiz Sessions (Submissions & In-progress)
+    // Only approved students and administrators can create or submit quiz sessions
     match /quizSessions/{sessionId} {
-      allow read, write: if true;
+      allow read: if isAdmin() || (
+        isAuthenticated() &&
+        (
+          resource == null ||
+          resource.data.uid == request.auth.uid ||
+          resource.data.studentId == request.auth.uid
+        )
+      );
+      
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        isApprovedStudent() &&
+        request.resource.data.status == 'in_progress'
+      );
+
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        (
+          resource.data.uid == request.auth.uid ||
+          resource.data.studentId == request.auth.uid
+        ) &&
+        resource.data.status == 'in_progress'
+      );
+
+      allow delete: if isAdmin();
     }
 
     // Winners collection (Publicly visible leaderboard)
     match /winners/{quizId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // Tie-breaks collection
     match /tieBreaks/{tieBreakId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // Audit logs
     match /auditLogs/{logId} {
-      allow read, write: if true;
+      allow read, write: if isAdmin();
     }
 
     // Portal Settings
     match /settings/{settingId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }

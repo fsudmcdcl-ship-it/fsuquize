@@ -1,4 +1,11 @@
-export type StudentStatus = 'active' | 'suspended' | 'blocked' | 'restricted';
+export type StudentStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'active'
+  | 'suspended'
+  | 'blocked'
+  | 'restricted';
 
 export interface DeviceSession {
   deviceId: string;
@@ -13,17 +20,25 @@ export interface DeviceSession {
 
 export interface Student {
   id: string; // e.g., FSU25678
-  uid?: string;
+  studentId?: string; // e.g., FSU25678
+  uid?: string; // Firebase Auth UID
   name: string;
+  email?: string;
   rollNo: string;
   class: string; // e.g., BCA, BBS, B.Sc.CSIT, B.Ed
   semester: string; // e.g., प्रथम, दोस्रो, तेस्रो, etc.
   phone: string;
   username: string; // e.g., FSU25678
-  passcode: string; // 4 digits
+  passcode?: string; // in-memory only, NEVER stored in Firestore or Realtime DB
+  role?: 'student';
   authEmail?: string;
   profilePhoto?: string;
   status: StudentStatus;
+  appliedAt?: string; // ISO date-time of registration
+  approvedAt?: string | null; // ISO date-time when admin approved
+  approvedBy?: string | null; // Admin UID who approved
+  rejectedAt?: string | null;
+  rejectedBy?: string | null;
   activeSessions?: Record<string, DeviceSession>;
   createdAt: string;
   updatedAt?: string;
@@ -71,6 +86,7 @@ export type SessionStatus = 'in_progress' | 'submitted' | 'expired';
 
 export interface QuizSession {
   id: string; // quizId_studentId
+  uid?: string; // Firebase Auth UID
   quizId: string;
   studentId: string;
   studentName: string;

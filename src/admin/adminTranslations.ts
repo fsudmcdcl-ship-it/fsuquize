@@ -73,7 +73,8 @@ export const adminTranslations = {
     totalStudents: 'जम्मा विद्यार्थी',
     searchPlaceholder: 'नाम, रोल नम्बर, कक्षा वा विद्यार्थी ID बाट खोज्नुहोस्...',
     filterAll: 'सबै स्थिति (All Status)',
-    filterActive: 'सक्रिय (Active)',
+    filterPending: 'स्वीकृति पर्खिरहेका (Pending Applications)',
+    filterActive: 'सक्रिय / स्वीकृत (Active / Approved)',
     filterSuspended: 'निलम्बित (Suspended)',
     filterBlocked: 'ब्लक गरिएको (Blocked)',
     filterRestricted: 'प्रतिबन्धित (Restricted)',
@@ -85,21 +86,30 @@ export const adminTranslations = {
     thRoll: 'रोल नम्बर',
     thPhone: 'फोन नम्बर',
     thStatus: 'स्थिति (Status)',
-    thRegisteredDate: 'दर्ता मिति',
+    thRegisteredDate: 'दर्ता / आवेदन मिति',
     thActions: 'कार्य (Actions)',
 
     // Student Statuses
-    statusActive: 'सक्रिय',
+    statusPending: 'स्वीकृति पर्खिरहेको (Pending)',
+    statusApproved: 'स्वीकृत (Approved)',
+    statusActive: 'सक्रिय (Active)',
     statusSuspended: 'निलम्बित',
     statusBlocked: 'ब्लक',
     statusRestricted: 'प्रतिबन्धित',
+    statusRejected: 'अस्वीकृत (Rejected)',
 
     // Student Actions
+    btnApprove: 'स्वीकृत गर्नुहोस् (Approve)',
+    btnReject: 'अस्वीकृत गर्नुहोस् (Reject)',
     btnEdit: 'विवरण सम्पादन',
     btnActivate: 'सक्रिय बनाउनुहोस्',
     btnSuspend: 'निलम्बन गर्नुहोस्',
     btnBlock: 'ब्लक गर्नुहोस्',
     btnDelete: 'मेटाउनुहोस्',
+
+    // Pending Section
+    pendingReviewTitle: 'स्वीकृति पर्खिरहेका नयाँ आवेदनहरू (Pending Applications Review)',
+    pendingReviewSubtitle: 'प्रशासकले स्वीकृत (Approve) गरेपछि मात्र विद्यार्थीले क्विज खेल्न पाउनेछन्।',
 
     // Edit Modal
     editStudentTitle: 'विद्यार्थी विवरण सम्पादन गर्नुहोस्',
@@ -180,7 +190,8 @@ export const adminTranslations = {
     totalStudents: 'Total Students',
     searchPlaceholder: 'Search by name, roll no, class, or student ID...',
     filterAll: 'All Status',
-    filterActive: 'Active',
+    filterPending: 'Pending Applications',
+    filterActive: 'Active / Approved',
     filterSuspended: 'Suspended',
     filterBlocked: 'Blocked',
     filterRestricted: 'Restricted',
@@ -192,21 +203,30 @@ export const adminTranslations = {
     thRoll: 'Roll No',
     thPhone: 'Phone Number',
     thStatus: 'Status',
-    thRegisteredDate: 'Registered Date',
+    thRegisteredDate: 'Registered / Applied Date',
     thActions: 'Actions',
 
     // Student Statuses
+    statusPending: 'Pending Approval',
+    statusApproved: 'Approved',
     statusActive: 'Active',
     statusSuspended: 'Suspended',
     statusBlocked: 'Blocked',
     statusRestricted: 'Restricted',
+    statusRejected: 'Rejected',
 
     // Student Actions
+    btnApprove: 'Approve Application',
+    btnReject: 'Reject',
     btnEdit: 'Edit Details',
     btnActivate: 'Set Active',
     btnSuspend: 'Suspend',
     btnBlock: 'Block',
     btnDelete: 'Delete',
+
+    // Pending Section
+    pendingReviewTitle: 'Pending Student Applications Review',
+    pendingReviewSubtitle: 'Applications awaiting admin approval. Only approved students can participate in quizzes.',
 
     // Edit Modal
     editStudentTitle: 'Edit Student Details',

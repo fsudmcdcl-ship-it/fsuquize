@@ -155,63 +155,58 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
   if (registrationSuccess) {
     return (
       <div className="max-w-md mx-auto px-4 py-12">
-        <div className="bg-white rounded-3xl p-8 border border-slate-200/80 shadow-xl text-center space-y-6 animate-in zoom-in-95 duration-200">
-          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-3xl">
-            ✓
+        <div className="bg-white rounded-3xl p-8 border border-amber-200 shadow-xl text-center space-y-6 animate-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-3xl">
+            ⏳
           </div>
 
           <div>
-            <span className="text-xs font-bold text-emerald-600 uppercase tracking-widest block mb-1">
-              दर्ता सफल भयो!
+            <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full uppercase tracking-wider inline-block mb-2">
+              आवेदन दर्ता सम्पन्न • स्थिति: स्वीकृति पर्खिरहेको (Pending)
             </span>
-            <h2 className="text-2xl font-black text-slate-900">विद्यार्थी दर्ता सम्पन्न भयो</h2>
-            <p className="text-sm text-slate-600 mt-2">
-              बधाई छ, {registrationSuccess.name}! तपाईंको विद्यार्थी खाता सफलतापूर्वक निर्माण गरिएको छ।
+            <h2 className="text-2xl font-black text-slate-900">विद्यार्थी दर्ता आवेदन प्राप्त भयो</h2>
+            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+              धन्यवाद, <b className="text-slate-800">{registrationSuccess.name}</b>! तपाईंको विद्यार्थी खाता सफलतापूर्वक दर्ता भएको छ।
+              सुरक्षा तथा पारदर्शिताका लागि क्याम्पस प्रशासनले तपाईंको आवेदन प्रमाणीकरण गरेपछि क्विज खेल्न पाउने अनुमति प्राप्त हुनेछ।
             </p>
           </div>
 
           {/* Generated ID box */}
-          <div className="bg-slate-50 border-2 border-dashed border-red-300 rounded-2xl p-5">
+          <div className="bg-slate-50 border-2 border-dashed border-amber-300 rounded-2xl p-5">
             <span className="text-xs font-semibold text-slate-500 block mb-1">
-              तपाईंको विद्यार्थी ID (Student ID)
+              तपाईंको आधिकारिक विद्यार्थी ID (Student ID)
             </span>
             <div className="text-3xl font-black text-red-600 font-mono tracking-wider">
               {registrationSuccess.id}
             </div>
             <p className="text-xs text-slate-600 mt-2">
-              यो ID लगइन गर्दा प्रयोग गर्नुहोस्।
+              यो ID र आफ्नो ४-अंकको पिन प्रयोग गरेर भविष्यमा लगइन गर्न सकिन्छ।
             </p>
           </div>
 
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 text-left flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 text-left flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <p>
-              तपाईं चाहनुहुन्छ भने यो लगइन विवरण आफ्नो Google Password Manager मा सुरक्षित गर्न सक्नुहुन्छ।
+              तपाईंको खाता Firebase Authentication मा सुरक्षित रूपमा सिर्जना भएको छ। प्रशासनबाट स्वीकृति पाउने बित्तिकै ड्यासबोर्ड र क्विज स्वतः खुल्नेछ।
             </p>
           </div>
 
           <div className="space-y-3 pt-2">
             <button
-              onClick={() => navigate('/todays-quize')}
-              className="w-full py-3.5 px-4 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+              onClick={() => navigate('/pending')}
+              className="w-full py-3.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>आजको क्विज सुरु गर्नुहोस्</span>
+              <span>आवेदन स्थिति हेर्नुहोस् (View Application Status)</span>
               <ArrowRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition cursor-pointer"
-            >
-              ड्यासबोर्डमा जानुहोस्
             </button>
             <button
               onClick={() => {
                 dataService.logoutStudent();
                 navigate('/login');
               }}
-              className="w-full py-2 px-4 text-slate-500 hover:text-red-600 font-semibold text-xs rounded-xl transition cursor-pointer"
+              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition cursor-pointer"
             >
-              लगआउट गर्नुहोस् र पुनः लगइन जाँच गर्नुहोस् (Log out & test re-login)
+              लगआउट गर्नुहोस् (Log Out)
             </button>
           </div>
         </div>
