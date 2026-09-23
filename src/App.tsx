@@ -84,6 +84,11 @@ function parseCurrentRoute(): string {
     }
   }
 
+  // Handle trailing slashes or subpaths like /students/ or /students
+  if (rawPath === '/students' || rawPath.startsWith('/students/')) {
+    return '/quizemasteradmin/students';
+  }
+
   // Dynamic admin slug match
   try {
     const stored = localStorage.getItem('fsudmc_settings_v2');
