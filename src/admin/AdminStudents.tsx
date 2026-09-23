@@ -66,12 +66,24 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
   };
 
   const filteredStudents = students.filter(s => {
+    const rawSearch = searchTerm.trim().toLowerCase();
+    if (!rawSearch) {
+      return statusFilter === 'all' || s.status === statusFilter;
+    }
+
+    // Convert search query to both English and Nepali digit variants for flexible typing
+    const searchEngDigits = rawSearch.replace(/[०-९]/g, d => '०१२३४५६७८९'.indexOf(d).toString());
+    const searchNepDigits = toNepaliDigits(rawSearch);
+
     const matchesSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.rollNo.includes(searchTerm) ||
-      s.class.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.phone.includes(searchTerm);
+      s.name.toLowerCase().includes(rawSearch) ||
+      s.id.toLowerCase().includes(rawSearch) ||
+      s.rollNo.toLowerCase().includes(rawSearch) ||
+      s.rollNo.includes(searchEngDigits) ||
+      toNepaliDigits(s.rollNo).includes(searchNepDigits) ||
+      s.class.toLowerCase().includes(rawSearch) ||
+      s.phone.includes(searchEngDigits) ||
+      toNepaliDigits(s.phone).includes(searchNepDigits);
 
     const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -376,8 +388,32 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-400 font-medium">
-                    {t.noStudentsFound}
+                  <td colSpan={8} className="py-12 text-center">
+                    <div className="max-w-md mx-auto flex flex-col items-center justify-center space-y-2">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
+                        <Search className="w-6 h-6" />
+                      </div>
+                      <div className="text-sm font-bold text-slate-800">
+                        {searchTerm ? (
+                          lang === 'ne' ? `"${searchTerm}" को लागि कुनै विद्यार्थी फेला परेन` : `No students matching "${searchTerm}"`
+                        ) : (
+                          t.noStudentsFound
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 max-w-sm">
+                        {searchTerm
+                          ? (lang === 'ne' ? 'कृपया रोल नम्बर वा नाम अंग्रेजी र नेपाली दुवै अंकमा परीक्षण गर्न सक्नुहुन्छ।' : 'Try searching by student ID, roll number, or phone number.')
+                          : (lang === 'ne' ? 'फायरबेस ब्याकइन्डबाट डाटा पुनः तान्न माथिको "डाटाबेस रिफ्रेस" बटन थिच्नुहोस्।' : 'Click the "Refresh Database" button above to pull records from Firebase.')}
+                      </p>
+                      {searchTerm && (
+                        <button
+                          onClick={() => setSearchTerm('')}
+                          className="mt-2 text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3.5 py-1.5 rounded-lg transition"
+                        >
+                          {lang === 'ne' ? 'खोज खाली गर्नुहोस् (Clear search)' : 'Clear search'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )}

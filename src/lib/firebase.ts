@@ -14,7 +14,15 @@ import {
   type Auth,
   type User,
 } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  getFirestore,
+  enableNetwork,
+  disableNetwork,
+  type Firestore
+} from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { getDatabase, type Database } from "firebase/database";
 
@@ -22,20 +30,59 @@ import { getDatabase, type Database } from "firebase/database";
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "quize-c3025.firebaseapp.com",
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://quize-c3025-default-rtdb.firebaseio.com",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "quize-c3025",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "quize-c3025.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "62815879515",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:62815879515:web:8de7b15748cf6ff22a9a7e",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-XHX6RBHH12",
 };
 
-// Initialize Firebase
+// Initialize Firebase App
 export const app: FirebaseApp =
   getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// Initialize Services
+// Initialize Firestore with robust local persistent cache & multi-tab support
+let firestoreInstance: Firestore;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  });
+} catch {
+  // Fallback to getFirestore if already initialized or in unsupported environment
+  firestoreInstance = getFirestore(app);
+}
+
+export const firestoreDb: Firestore = firestoreInstance;
+
+// Clean network connection helpers for Firestore
+export async function reconnectFirestore(): Promise<void> {
+  try {
+    await enableNetwork(firestoreDb);
+  } catch (err) {
+    console.debug('Firestore enableNetwork notice:', err);
+  }
+}
+
+export async function pauseFirestoreNetwork(): Promise<void> {
+  try {
+    await disableNetwork(firestoreDb);
+  } catch (err) {
+    console.debug('Firestore disableNetwork notice:', err);
+  }
+}
+
+// Automatically reconnect when browser comes online
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    reconnectFirestore().catch(() => {});
+  });
+}
+
+// Initialize other Firebase services
 export const auth: Auth = getAuth(app);
-export const firestoreDb: Firestore = getFirestore(app);
 export const realtimeDb: Database = getDatabase(app);
 export const firebaseStorage: FirebaseStorage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();

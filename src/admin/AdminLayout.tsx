@@ -85,10 +85,15 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       if (result.success) {
         showToast('success', `${t.refreshedSuccess} (${result.studentCount} ${t.totalStudents.toLowerCase()})`);
       } else {
-        showToast('info', result.error ? `${t.refreshedSuccess} (Local Cache Synchronized)` : t.refreshedSuccess);
+        showToast(
+          'info',
+          result.error?.includes('offline')
+            ? (lang === 'ne' ? 'अफलाइन क्यास सक्रिय: स्थानीय डाटाबेस उपलब्ध छ।' : 'Offline cache active: Local records available.')
+            : `${t.refreshedSuccess} (${result.studentCount} ${t.totalStudents.toLowerCase()})`
+        );
       }
     } catch {
-      showToast('info', 'डाटाबेस सिङ्क गरियो (Local cache synchronized)');
+      showToast('info', lang === 'ne' ? 'स्थानीय डाटा सुरक्षित छ।' : 'Local data cache available.');
     } finally {
       setIsRefreshing(false);
     }
