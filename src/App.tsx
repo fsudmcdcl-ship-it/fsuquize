@@ -30,16 +30,74 @@ import { AdminWinners } from './admin/AdminWinners';
 import { AdminReports } from './admin/AdminReports';
 import { AdminSettings } from './admin/AdminSettings';
 
+// Helper to determine the normalized route regardless of GitHub Pages base path or custom domain
+function parseCurrentRoute(): string {
+  if (typeof window === 'undefined') return '/';
+
+  // 1. Check if redirected from GitHub Pages 404.html (e.g. ?p=/login or ?p=/quizemasteradmin)
+  const searchParams = new URLSearchParams(window.location.search);
+  const redirectParam = searchParams.get('p') || searchParams.get('path');
+  if (redirectParam) {
+    const cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState(null, '', cleanUrl);
+    return redirectParam.startsWith('/') ? redirectParam : `/${redirectParam}`;
+  }
+
+  // 2. Check hash route (e.g. #/login, #/quizemasteradmin)
+  const hash = window.location.hash.replace(/^#\/?/, '/');
+  if (hash && hash !== '/') {
+    return hash.startsWith('/') ? hash : `/${hash}`;
+  }
+
+  // 3. Check pathname
+  const rawPath = window.location.pathname || '/';
+
+  // Recognized known routes
+  const recognizedRoutes = [
+    '/login',
+    '/register',
+    '/dashboard',
+    '/todays-quize',
+    '/quiz/',
+    '/winner-list',
+    '/my-status',
+    '/profile',
+    '/quizemasteradmin',
+  ];
+
+  for (const r of recognizedRoutes) {
+    const idx = rawPath.indexOf(r);
+    if (idx !== -1) {
+      return rawPath.substring(idx);
+    }
+  }
+
+  // Dynamic admin slug match
+  try {
+    const stored = localStorage.getItem('fsudmc_settings_v2');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed?.adminSlug) {
+        const slugRoute = `/${parsed.adminSlug}`;
+        const idx = rawPath.indexOf(slugRoute);
+        if (idx !== -1) {
+          return rawPath.substring(idx);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Default root
+  return '/';
+}
+
 export default function App() {
   const [showWelcomeSplash, setShowWelcomeSplash] = useState<boolean>(true);
 
   // Navigation / Routing state
-  const [currentPath, setCurrentPath] = useState<string>(() => {
-    // Supports hash or pathname
-    const hash = window.location.hash.replace(/^#/, '');
-    if (hash) return hash;
-    return window.location.pathname || '/';
-  });
+  const [currentPath, setCurrentPath] = useState<string>(parseCurrentRoute);
 
   // Global State
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
@@ -98,28 +156,33 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  // Listen to popstate
+  // Listen to popstate & hashchange
   useEffect(() => {
-    const handlePopState = () => {
-      const hash = window.location.hash.replace(/^#/, '');
-      if (hash) {
-        setCurrentPath(hash);
-      } else {
-        setCurrentPath(window.location.pathname || '/');
-      }
+    const handleRouteChange = () => {
+      setCurrentPath(parseCurrentRoute());
     };
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('hashchange', handlePopState);
+    window.addEventListener('popstate', handleRouteChange);
+    window.addEventListener('hashchange', handleRouteChange);
     return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('hashchange', handlePopState);
+      window.removeEventListener('popstate', handleRouteChange);
+      window.removeEventListener('hashchange', handleRouteChange);
     };
   }, []);
 
   // Navigate helper
   const navigate = (path: string) => {
     setCurrentPath(path);
-    window.history.pushState({}, '', path);
+    try {
+      // If deployed on GitHub Pages under a repo subpath (e.g. username.github.io/reponame)
+      const isGitHubRepo = window.location.hostname.endsWith('github.io') && window.location.pathname.split('/').filter(Boolean).length > 0;
+      if (isGitHubRepo) {
+        window.location.hash = path;
+      } else {
+        window.history.pushState({}, '', path);
+      }
+    } catch {
+      window.location.hash = path;
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

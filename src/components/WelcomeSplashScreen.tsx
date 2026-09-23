@@ -26,7 +26,16 @@ export const WelcomeSplashScreen: React.FC<WelcomeSplashScreenProps> = ({ onComp
       });
     }, intervalTime);
 
-    return () => clearInterval(interval);
+    // Guaranteed fallback: dismiss splash after 2.2 seconds even if browser tab was inactive
+    const fallbackTimer = setTimeout(() => {
+      clearInterval(interval);
+      onComplete();
+    }, 2200);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(fallbackTimer);
+    };
   }, [onComplete]);
 
   return (

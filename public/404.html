@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ne">
+  <head>
+    <meta charset="utf-8">
+    <title>दार्चुला बहुमुखी क्याम्पस | हाजिरी जवाफ पोर्टल</title>
+    <script type="text/javascript">
+      // Single Page Apps for GitHub Pages
+      // https://github.com/rafgraph/spa-github-pages
+      // This script takes the current url and converts the path and query
+      // into just query params and redirects to the index.html page
+      var pathSegmentsToKeep = 1;
+
+      var l = window.location;
+      // If we are on custom domain, pathSegmentsToKeep is 0. If on github.io/repo, pathSegmentsToKeep is 1.
+      if (l.hostname.indexOf('github.io') === -1) {
+        pathSegmentsToKeep = 0;
+      }
+
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
+    </script>
+  </head>
+  <body style="background-color: #0f172a; color: #ffffff; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+    <div style="text-align: center;">
+      <h2>पृष्ठ खुल्दैछ... (Redirecting)</h2>
+      <p style="color: #94a3b8;">कृपया केही क्षण प्रतिक्षा गर्नुहोस्...</p>
+    </div>
+  </body>
+</html>

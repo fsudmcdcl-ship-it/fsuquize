@@ -69,11 +69,19 @@ const INITIAL_WINNERS: WinnerRecord[] = [];
 
 
 class DataService {
+  private memoryStore: Record<string, string> = {};
+
   private getStorage<T>(key: string, fallback: T): T {
     try {
-      const data = localStorage.getItem(key);
+      let data: string | null = null;
+      if (typeof window !== 'undefined' && 'localStorage' in window) {
+        data = localStorage.getItem(key);
+      } else {
+        data = this.memoryStore[key] || null;
+      }
+
       if (!data) {
-        localStorage.setItem(key, JSON.stringify(fallback));
+        this.setStorage(key, fallback);
         return fallback;
       }
       return JSON.parse(data);
@@ -84,9 +92,13 @@ class DataService {
 
   private setStorage<T>(key: string, value: T): void {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {
-      console.error('Storage write error', e);
+      const serialized = JSON.stringify(value);
+      this.memoryStore[key] = serialized;
+      if (typeof window !== 'undefined' && 'localStorage' in window) {
+        localStorage.setItem(key, serialized);
+      }
+    } catch {
+      // Memory store already retained it
     }
   }
 

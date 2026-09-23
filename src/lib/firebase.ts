@@ -17,14 +17,13 @@ import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 // Web app's Firebase configuration provided by user
 export const firebaseConfig = {
-  apiKey: "AIzaSyCSbIo5RUS0OZ_-sGuSjFHOy5P7knYWPeY",
-  authDomain: "fsu-bdbf6.firebaseapp.com",
-  databaseURL: "https://fsu-bdbf6-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "fsu-bdbf6",
-  storageBucket: "fsu-bdbf6.firebasestorage.app",
-  messagingSenderId: "214528113668",
-  appId: "1:214528113668:web:f2b8b65cab72c444454951",
-  measurementId: "G-X4FJ0Z8CE6",
+  apiKey: "AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o",
+  authDomain: "quize-c3025.firebaseapp.com",
+  projectId: "quize-c3025",
+  storageBucket: "quize-c3025.firebasestorage.app",
+  messagingSenderId: "62815879515",
+  appId: "1:62815879515:web:8de7b15748cf6ff22a9a7e",
+  measurementId: "G-XHX6RBHH12",
 };
 
 // Initialize Firebase
