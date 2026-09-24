@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { Student, StudentStatus } from '../types/quiz';
+import type { Student, StudentStatus, QuizSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
 import {
@@ -25,6 +25,7 @@ import {
   MessageSquare,
   Eye,
   Camera,
+  Trophy,
 } from 'lucide-react';
 import {
   getAdminLanguage,
@@ -34,15 +35,18 @@ import {
 import { WhatsAppModal } from './components/WhatsAppModal';
 import { SendNotificationModal } from './components/SendNotificationModal';
 
+export type StudentFilterType = 'all' | 'attempted' | 'not_attempted' | 'active' | 'pending' | 'suspended' | 'blocked' | 'restricted';
+
 interface AdminStudentsProps {
   students: Student[];
+  sessions?: QuizSession[];
   onRefresh: () => void;
 }
 
-export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefresh }) => {
+export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions, onRefresh }) => {
   const [lang, setLang] = useState<AdminLanguage>(getAdminLanguage);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'blocked' | 'restricted'>('all');
+  const [statusFilter, setStatusFilter] = useState<StudentFilterType>('all');
   const [deleteConfirmStudent, setDeleteConfirmStudent] = useState<Student | null>(null);
 
   // WhatsApp & Notification Modals State
@@ -134,8 +138,21 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
 
   const filteredStudents = students.filter(s => {
     const rawSearch = searchTerm.trim().toLowerCase();
+    const attemptCount = dataService.getStudentSessionCount(s.id);
+
+    let matchesStatus = true;
+    if (statusFilter === 'all') {
+      matchesStatus = true;
+    } else if (statusFilter === 'attempted') {
+      matchesStatus = attemptCount > 0;
+    } else if (statusFilter === 'not_attempted') {
+      matchesStatus = attemptCount === 0;
+    } else {
+      matchesStatus = s.status === statusFilter;
+    }
+
     if (!rawSearch) {
-      return statusFilter === 'all' || s.status === statusFilter;
+      return matchesStatus;
     }
 
     // Convert search query to both English and Nepali digit variants for flexible typing
@@ -152,7 +169,6 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
       s.phone.includes(searchEngDigits) ||
       toNepaliDigits(s.phone).includes(searchNepDigits);
 
-    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -168,13 +184,16 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
 
   const handleDelete = () => {
     if (!deleteConfirmStudent) return;
-    dataService.deleteStudent(deleteConfirmStudent.id, 'admin@fsudmc.com');
+    const attemptCount = dataService.getStudentSessionCount(deleteConfirmStudent.id);
+    dataService.deleteStudent(deleteConfirmStudent.id, 'admin@fsudmc.com', true);
     setDeleteConfirmStudent(null);
     onRefresh();
     showToast(
       lang === 'ne'
-        ? 'विद्यार्थी खाता ब्याकइन्डबाट स्थायी रूपमा हटाइयो।'
-        : 'Student account permanently removed from backend.'
+        ? attemptCount > 0
+          ? `विद्यार्थी खाता र सम्बन्धित ${toNepaliDigits(attemptCount)} वटा क्विज सबमिसन ब्याकइन्डबाट पूर्ण रूपमा हटाइयो।`
+          : 'विद्यार्थी खाता ब्याकइन्डबाट स्थायी रूपमा हटाइयो।'
+        : 'Student account and all quiz submissions permanently removed from backend.'
     );
   };
 
@@ -349,6 +368,8 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
             className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-700"
           >
             <option value="all">{t.filterAll}</option>
+            <option value="attempted">🎯 {lang === 'ne' ? 'क्विज सहभागी (सबमिसन गरेका)' : 'Attempted Quiz'}</option>
+            <option value="not_attempted">⚪ {lang === 'ne' ? 'क्विज नदिएका' : 'Not Attempted'}</option>
             <option value="pending">{t.filterPending || 'Pending'}</option>
             <option value="active">{t.filterActive}</option>
             <option value="suspended">{t.filterSuspended}</option>
@@ -402,9 +423,20 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
                         </div>
                         <div>
                           <span className="font-bold text-slate-900 block">{student.name}</span>
-                          {student.passcode && (
-                            <span className="text-[10px] text-slate-400 font-mono">PIN: {student.passcode}</span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            {student.passcode && (
+                              <span className="text-[10px] text-slate-400 font-mono">PIN: {student.passcode}</span>
+                            )}
+                            {dataService.getStudentSessionCount(student.id) > 0 && (
+                              <span
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-bold text-[10px]"
+                                title={`${dataService.getStudentSessionCount(student.id)} पटक क्विज सबमिसन गरिएको`}
+                              >
+                                <Trophy className="w-2.5 h-2.5 text-amber-600" />
+                                <span>{toNepaliDigits(dataService.getStudentSessionCount(student.id))} सबमिसन</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -751,40 +783,57 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
       )}
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirmStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
-            <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto text-2xl font-bold">
-              ⚠️
-            </div>
-            <div className="text-center">
-              <h3 className="text-lg font-black text-slate-900">{t.deleteTitle}</h3>
-              <p className="text-xs text-slate-600 mt-1">
-                {lang === 'ne' ? (
-                  <>के तपाईं <b>{deleteConfirmStudent.name}</b> ({deleteConfirmStudent.id}) को खाता प्रणालीबाट पूर्ण रूपमा मेटाउन निश्चित हुनुहुन्छ? यो कार्य फिर्ता गर्न सकिँदैन।</>
-                ) : (
-                  <>Are you sure you want to permanently delete <b>{deleteConfirmStudent.name}</b> ({deleteConfirmStudent.id})? This action cannot be undone.</>
-                )}
-              </p>
-            </div>
+      {deleteConfirmStudent && (() => {
+        const attemptCount = dataService.getStudentSessionCount(deleteConfirmStudent.id);
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto text-2xl font-bold">
+                ⚠️
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-black text-slate-900">{t.deleteTitle}</h3>
+                <p className="text-xs text-slate-600 mt-1">
+                  {lang === 'ne' ? (
+                    <>के तपाईं <b>{deleteConfirmStudent.name}</b> ({deleteConfirmStudent.id}) को खाता प्रणालीबाट पूर्ण रूपमा मेटाउन निश्चित हुनुहुन्छ? यो कार्य फिर्ता गर्न सकिँदैन।</>
+                  ) : (
+                    <>Are you sure you want to permanently delete <b>{deleteConfirmStudent.name}</b> ({deleteConfirmStudent.id})? This action cannot be undone.</>
+                  )}
+                </p>
 
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => setDeleteConfirmStudent(null)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
-              >
-                {t.btnCancel}
-              </button>
-              <button
-                onClick={handleDelete}
-                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow transition"
-              >
-                {t.btnConfirmDelete}
-              </button>
+                {attemptCount > 0 && (
+                  <div className="mt-3.5 p-3 bg-amber-50 rounded-2xl border border-amber-200 text-left space-y-1">
+                    <div className="flex items-center gap-2 text-amber-800 font-bold text-xs">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>क्विज सबमिसन समावेश छ ({toNepaliDigits(attemptCount)} वटा क्विज सबमिसन)</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                      यस विद्यार्थीले क्विजमा सहभागिता जनाइसकेका छन्। मेटाउँदा विद्यार्थी खातासँगै उहाँका सम्पूर्ण क्विज सबमिसन, प्राप्तांक र स्कोरकार्ड रेकर्डहरू प्रणाली र ब्याकइन्डबाट पूर्ण रूपमा मेटिनेछन्।
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmStudent(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                >
+                  {t.btnCancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow transition"
+                >
+                  {t.btnConfirmDelete}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* WhatsApp Modal */}
       <WhatsAppModal

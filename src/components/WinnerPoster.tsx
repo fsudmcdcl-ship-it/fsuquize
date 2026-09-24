@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import type { WinnerRecord } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, formatDurationSeconds } from '../lib/nepaliUtils';
 import { Download, Award, Sparkles, Printer, X, Image as ImageIcon, Loader2 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { exportPosterToFile } from '../lib/posterExport';
 
 interface WinnerPosterProps {
   record: WinnerRecord;
@@ -24,25 +24,21 @@ export const WinnerPoster: React.FC<WinnerPosterProps> = ({ record, onClose }) =
     setExportFormat(format);
 
     try {
-      // Allow DOM to settle, then render canvas with high DPI (scale 2.5)
-      const canvas = await html2canvas(posterRef.current, {
-        scale: 2.5,
-        useCORS: true,
-        allowTaint: true,
+      const cleanQuizTitle = (record.quizTitle || 'weekly_quiz').replace(/[^a-zA-Z0-9\u0900-\u097F]/g, '_');
+      const filename = `FSU_DMC_विजेता_पोस्टर_${cleanQuizTitle}_1st_2nd_3rd.${format}`;
+
+      const res = await exportPosterToFile({
+        element: posterRef.current,
+        filename,
+        format,
         backgroundColor: '#090d16',
-        logging: false,
+        scale: 2.2,
       });
 
-      const mime = format === 'png' ? 'image/png' : 'image/jpeg';
-      const dataUrl = canvas.toDataURL(mime, 0.95);
-
-      const link = document.createElement('a');
-      const cleanQuizTitle = (record.quizTitle || 'weekly_quiz').replace(/[^a-zA-Z0-9\u0900-\u097F]/g, '_');
-      link.download = `FSU_DMC_विजेता_पोस्टर_${cleanQuizTitle}_1st_2nd_3rd.${format}`;
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (!res.success) {
+        console.error('Poster export returned error:', res.error);
+        alert('पोस्टर डाउनलोड गर्दा समस्या आयो: ' + (res.error || 'पुन: प्रयास गर्नुहोस्।'));
+      }
     } catch (err) {
       console.error('Poster export failed:', err);
       alert('पोस्टर डाउनलोड गर्दा समस्या आयो। कृपया पुन: प्रयास गर्नुहोस्।');
@@ -151,6 +147,7 @@ export const WinnerPoster: React.FC<WinnerPosterProps> = ({ record, onClose }) =
                     <img
                       src={record.first.profilePhoto}
                       alt={record.first.name}
+                      crossOrigin="anonymous"
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -190,6 +187,7 @@ export const WinnerPoster: React.FC<WinnerPosterProps> = ({ record, onClose }) =
                     <img
                       src={record.second.profilePhoto}
                       alt={record.second.name}
+                      crossOrigin="anonymous"
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -229,6 +227,7 @@ export const WinnerPoster: React.FC<WinnerPosterProps> = ({ record, onClose }) =
                     <img
                       src={record.third.profilePhoto}
                       alt={record.third.name}
+                      crossOrigin="anonymous"
                       className="w-full h-full object-cover"
                     />
                   ) : (

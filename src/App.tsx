@@ -309,6 +309,7 @@ export default function App() {
       adminContent = (
         <AdminStudents
           students={allStudents}
+          sessions={allSessions}
           onRefresh={refreshData}
         />
       );
@@ -325,6 +326,8 @@ export default function App() {
           sessions={allSessions}
           quizzes={allQuizzes}
           questions={allQuestions}
+          students={allStudents}
+          onRefresh={refreshData}
         />
       );
     } else if (currentPath === `${adminPrefix}/winners`) {

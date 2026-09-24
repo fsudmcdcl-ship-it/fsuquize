@@ -1062,7 +1062,12 @@ class DataService {
     return true;
   }
 
-  deleteStudent(studentId: string, adminEmail = 'admin'): boolean {
+  getStudentSessionCount(studentId: string): number {
+    return this.getSessions().filter(s => s.studentId === studentId || s.id.endsWith(`_${studentId}`)).length;
+  }
+
+  deleteStudent(studentId: string, adminEmail = 'admin', purgeSessions = true): boolean {
+    const student = this.getStudents().find(s => s.id === studentId);
     let students = this.getStudents();
     students = students.filter(s => s.id !== studentId);
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
@@ -1081,11 +1086,86 @@ class DataService {
       });
     }
 
+    // Clean up all quiz attempts and submissions of this student
+    if (purgeSessions) {
+      const allSessions = this.getSessions();
+      const studentSessions = allSessions.filter(
+        s => s.studentId === studentId || s.id.endsWith(`_${studentId}`) || (student && s.studentRoll === student.rollNo && s.studentClass === student.class)
+      );
+
+      if (studentSessions.length > 0) {
+        const remainingSessions = allSessions.filter(s => !studentSessions.some(ss => ss.id === s.id));
+        this.setStorage(STORAGE_KEYS.SESSIONS, remainingSessions);
+
+        for (const sess of studentSessions) {
+          this.deleteSessionFromFirestore(sess.id).catch(() => {});
+          remove(ref(realtimeDb, `quizSessions/${sess.id}`)).catch(() => {});
+        }
+      }
+
+      // Clear any locked question picks stored locally for this student
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.includes(studentId) || (student && k.includes(student.rollNo)))) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+      } catch {
+        // ignore
+      }
+    }
+
     this.addAuditLog({
       adminEmail,
       action: 'विद्यार्थी स्थायी मेटाइयो',
       target: studentId,
-      details: `विद्यार्थी खाता प्रणाली र ब्याकइन्डबाट हटाइयो`
+      details: `विद्यार्थी खाता र सम्बन्धित सम्पूर्ण क्विज सबमिसन प्रणाली र ब्याकइन्डबाट पूर्ण रूपमा हटाइयो`
+    });
+
+    this.notifyListeners();
+    return true;
+  }
+
+  deleteQuizSession(sessionId: string, adminEmail = 'admin'): boolean {
+    const allSessions = this.getSessions();
+    const targetSession = allSessions.find(s => s.id === sessionId);
+    if (!targetSession) return false;
+
+    const remainingSessions = allSessions.filter(s => s.id !== sessionId);
+    this.setStorage(STORAGE_KEYS.SESSIONS, remainingSessions);
+
+    // Delete from Firestore & Realtime Database
+    this.deleteSessionFromFirestore(sessionId).catch(() => {});
+    remove(ref(realtimeDb, `quizSessions/${sessionId}`)).catch(() => {});
+
+    // Clear student's locked question pick so they may re-attempt if quiz is active
+    try {
+      const lockKey = `fsudmc_locked_picks_v1_${targetSession.quizId}_${targetSession.studentId}`;
+      localStorage.removeItem(lockKey);
+    } catch {
+      // ignore
+    }
+
+    // Recalculate ranks for this quiz
+    const quizSessions = remainingSessions
+      .filter(s => s.quizId === targetSession.quizId && s.status === 'submitted')
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.timeTakenSeconds - b.timeTakenSeconds;
+      });
+    quizSessions.forEach((s, idx) => {
+      s.rank = idx + 1;
+    });
+    this.setStorage(STORAGE_KEYS.SESSIONS, remainingSessions);
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'क्विज सबमिसन मेटाइयो',
+      target: sessionId,
+      details: `${targetSession.studentName} (${targetSession.studentId}) को क्विज ${targetSession.quizId} सबमिसन मेटाइयो`
     });
 
     this.notifyListeners();
@@ -1575,6 +1655,16 @@ class DataService {
     } catch (err) {
       if (!isOfflineOrUnavailableError(err)) {
         console.debug('Error deleting student from Firestore:', err);
+      }
+    }
+  }
+
+  async deleteSessionFromFirestore(sessionId: string): Promise<void> {
+    try {
+      await deleteDoc(doc(firestoreDb, 'quizSessions', sessionId));
+    } catch (err) {
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Error deleting quizSession from Firestore:', err);
       }
     }
   }

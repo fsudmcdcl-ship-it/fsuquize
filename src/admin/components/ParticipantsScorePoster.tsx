@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import type { QuizSession, Quiz } from '../../types/quiz';
 import { toNepaliDigits, formatNepalDate, formatDurationSeconds } from '../../lib/nepaliUtils';
 import { Download, Award, Sparkles, Printer, X, Users, Trophy, Loader2 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { exportPosterToFile } from '../../lib/posterExport';
 
 interface ParticipantsScorePosterProps {
   quiz: Quiz;
@@ -31,24 +31,21 @@ export const ParticipantsScorePoster: React.FC<ParticipantsScorePosterProps> = (
     setExportFormat(format);
 
     try {
-      const canvas = await html2canvas(posterRef.current, {
-        scale: 2.5,
-        useCORS: true,
-        allowTaint: true,
+      const cleanTitle = (quiz.title || 'quiz').replace(/[^a-zA-Z0-9\u0900-\u097F]/g, '_');
+      const filename = `FSU_DMC_सहभागी_नतिजा_पोस्टर_${cleanTitle}.${format}`;
+
+      const res = await exportPosterToFile({
+        element: posterRef.current,
+        filename,
+        format,
         backgroundColor: '#050811',
-        logging: false,
+        scale: 2.0,
       });
 
-      const mime = format === 'png' ? 'image/png' : 'image/jpeg';
-      const dataUrl = canvas.toDataURL(mime, 0.95);
-
-      const link = document.createElement('a');
-      const cleanTitle = (quiz.title || 'quiz').replace(/[^a-zA-Z0-9\u0900-\u097F]/g, '_');
-      link.download = `FSU_DMC_सहभागी_नतिजा_पोस्टर_${cleanTitle}.${format}`;
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (!res.success) {
+        console.error('Participant poster export error:', res.error);
+        alert('पोस्टर डाउनलोड गर्दा समस्या आयो: ' + (res.error || 'कृपया पुनः प्रयास गर्नुहोस्।'));
+      }
     } catch (err) {
       console.error('Participant poster export error:', err);
       alert('पोस्टर डाउनलोड गर्दा समस्या आयो। कृपया पुनः प्रयास गर्नुहोस्।');
@@ -190,6 +187,7 @@ export const ParticipantsScorePoster: React.FC<ParticipantsScorePosterProps> = (
                       <img
                         src={p.studentPhoto}
                         alt={p.studentName}
+                        crossOrigin="anonymous"
                         className="w-full h-full object-cover"
                       />
                     ) : (
