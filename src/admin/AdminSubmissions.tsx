@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import type { QuizSession, Quiz, Question } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, formatDurationSeconds } from '../lib/nepaliUtils';
-import { Search, Eye, Check, X, FileSpreadsheet, ArrowLeft } from 'lucide-react';
+import { Search, Eye, Check, X, FileSpreadsheet, ArrowLeft, Trophy, Award } from 'lucide-react';
 import { exportQuizSubmissionsToExcel } from '../lib/excelExport';
+import { ParticipantsScorePoster } from './components/ParticipantsScorePoster';
 
 interface AdminSubmissionsProps {
   sessions: QuizSession[];
@@ -18,6 +19,7 @@ export const AdminSubmissions: React.FC<AdminSubmissionsProps> = ({
   const [selectedQuizId, setSelectedQuizId] = useState<string>(quizzes[0]?.id || 'quiz_week_12');
   const [searchTerm, setSearchTerm] = useState('');
   const [inspectSession, setInspectSession] = useState<QuizSession | null>(null);
+  const [showScorePoster, setShowScorePoster] = useState(false);
 
   const questionMap = new Map(questions.map(q => [q.id, q]));
   const activeQuiz = quizzes.find(q => q.id === selectedQuizId) || quizzes[0];
@@ -50,13 +52,24 @@ export const AdminSubmissions: React.FC<AdminSubmissionsProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={handleExport}
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2 cursor-pointer self-start sm:self-auto"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>यो क्विजको एक्सल डाउनलोड</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => setShowScorePoster(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+            title="सहभागी विद्यार्थीहरूको नतिजा पोस्टर JPG रूपमा हेर्नुहोस् र डाउनलोड गर्नुहोस्"
+          >
+            <Trophy className="w-4 h-4" />
+            <span>🖼️ नतिजा पोस्टर (JPG डाउनलोड)</span>
+          </button>
+
+          <button
+            onClick={handleExport}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2 cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>यो क्विजको एक्सल डाउनलोड</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -271,6 +284,14 @@ export const AdminSubmissions: React.FC<AdminSubmissionsProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {/* Participants Score Poster Modal (Master Admin Graphic View with JPG/PNG export) */}
+      {showScorePoster && activeQuiz && (
+        <ParticipantsScorePoster
+          quiz={activeQuiz}
+          participants={filteredSessions}
+          onClose={() => setShowScorePoster(false)}
+        />
       )}
     </div>
   );

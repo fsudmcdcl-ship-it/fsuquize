@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import type { Quiz, QuizStatus } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
-import { BookOpen, Plus, Trash2, CheckCircle2, Clock, Calendar, AlertCircle, Edit3, X, Check } from 'lucide-react';
+import { BookOpen, Plus, Trash2, CheckCircle2, Clock, Calendar, AlertCircle, Edit3, X, Check, Sparkles } from 'lucide-react';
+import { AiQuestionPickerModal } from './components/AiQuestionPickerModal';
 
 interface AdminQuizzesProps {
   quizzes: Quiz[];
@@ -16,6 +17,7 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
   onRefresh,
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAiPickerModal, setShowAiPickerModal] = useState(false);
   const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
 
   // Form states
@@ -115,13 +117,23 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2 cursor-pointer w-fit"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ नयाँ क्विज थप्नुहोस्</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowAiPickerModal(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>🤖 AI १० अनियमित प्रश्न छनोटकर्ता</span>
+          </button>
+
+          <button
+            onClick={handleOpenAdd}
+            className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-2 cursor-pointer w-fit"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ नयाँ क्विज थप्नुहोस्</span>
+          </button>
+        </div>
       </div>
 
       {/* Quizzes List */}
@@ -342,6 +354,22 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
             </form>
           </div>
         </div>
+      )}
+      {/* AI Random 10 Question Picker & Generator Modal */}
+      {showAiPickerModal && (
+        <AiQuestionPickerModal
+          isOpen={showAiPickerModal}
+          onClose={() => setShowAiPickerModal(false)}
+          questions={dataService.getQuestions()}
+          quizzes={quizzes}
+          onQuestionsUpdated={onRefresh}
+          onApplyToQuiz={(selected10, targetQuizId) => {
+            selected10.forEach(q => {
+              dataService.saveQuestion({ ...q, quizId: targetQuizId }, 'admin@fsudmc.com');
+            });
+            onRefresh();
+          }}
+        />
       )}
     </div>
   );

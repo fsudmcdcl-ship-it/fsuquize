@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import type { Question, QuestionOption } from '../types/quiz';
 import { toNepaliDigits } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
-import { Plus, Edit2, Trash2, CheckCircle2, AlertCircle, Check, X, BookOpen, Layers } from 'lucide-react';
+import { Plus, Edit2, Trash2, CheckCircle2, AlertCircle, Check, X, BookOpen, Layers, Sparkles } from 'lucide-react';
+import { AiQuestionPickerModal } from './components/AiQuestionPickerModal';
 
 interface AdminQuestionsProps {
   questions: Question[];
@@ -21,6 +22,7 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
   const [selectedSet, setSelectedSet] = useState<number>(1);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
   // Form State
   const [formQuestion, setFormQuestion] = useState('');
@@ -120,13 +122,23 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>नयाँ प्रश्न थप्नुहोस्</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => setIsAiModalOpen(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>🤖 AI १० अनियमित प्रश्न छनोटकर्ता</span>
+          </button>
+
+          <button
+            onClick={handleOpenAdd}
+            className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>नयाँ प्रश्न थप्नुहोस्</span>
+          </button>
+        </div>
       </div>
 
       {/* Validation Status Banner (Requirement 37) */}
@@ -422,6 +434,22 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
             </form>
           </div>
         </div>
+      )}
+      {/* AI Random 10 Question Picker & Generator Modal */}
+      {isAiModalOpen && (
+        <AiQuestionPickerModal
+          isOpen={isAiModalOpen}
+          onClose={() => setIsAiModalOpen(false)}
+          questions={questions}
+          quizzes={dataService.getQuizzes()}
+          onQuestionsUpdated={onRefresh}
+          onApplyToQuiz={(selected10, quizId) => {
+            selected10.forEach(q => {
+              dataService.saveQuestion({ ...q, quizId }, 'admin@fsudmc.com');
+            });
+            onRefresh();
+          }}
+        />
       )}
     </div>
   );

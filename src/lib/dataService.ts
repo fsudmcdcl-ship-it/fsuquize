@@ -76,6 +76,25 @@ export function safeRtdbKey(key: string): string {
   return String(key || '').trim().replace(/[.#$\[\]/]/g, '_');
 }
 
+export function stripUndefinedDeep<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj
+      .map(item => stripUndefinedDeep(item))
+      .filter(item => item !== undefined) as unknown as T;
+  }
+  if (typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      if (value !== undefined) {
+        result[key] = stripUndefinedDeep(value);
+      }
+    }
+    return result as T;
+  }
+  return obj;
+}
+
 const STORAGE_KEYS = {
   STUDENTS: 'fsudmc_students_v2',
   ADMINS: 'fsudmc_admins_v2',
@@ -1613,7 +1632,7 @@ class DataService {
         notifsMap[n.id] = n;
       }
 
-      const rtdbPayload: Record<string, unknown> = {
+      const rtdbPayload: Record<string, unknown> = stripUndefinedDeep({
         syncMeta: {
           lastPublishedAt: new Date().toISOString(),
           publishedBy: adminEmail,
@@ -1626,7 +1645,7 @@ class DataService {
         quizSessions: sessionsMap,
         winners: winnersMap,
         notifications: notifsMap,
-      };
+      });
 
       // 2. Perform atomic Realtime Database write with 3.5s timeout
       await withTimeout(
@@ -1801,8 +1820,8 @@ class DataService {
         title: params.title.trim(),
         message: params.message.trim(),
         targetType: params.targetType,
-        targetStudentId: params.targetStudentId,
-        targetStudentName: params.targetStudentName,
+        ...(params.targetType === 'specific' && params.targetStudentId ? { targetStudentId: params.targetStudentId } : {}),
+        ...(params.targetType === 'specific' && params.targetStudentName ? { targetStudentName: params.targetStudentName } : {}),
         type: params.type || 'info',
         createdAt: now,
         sentBy: params.adminEmail || 'admin@fsudmc.com',
@@ -1814,15 +1833,18 @@ class DataService {
       list.unshift(newNotif);
       this.setStorage(STORAGE_KEYS.NOTIFICATIONS, list);
 
+      // Deep clean to ensure zero undefined properties are passed to Firebase
+      const cleanNotif = stripUndefinedDeep(newNotif);
+
       // 2. Push to Realtime Database
-      set(ref(realtimeDb, `notifications/${notifId}`), newNotif).catch(err => {
+      set(ref(realtimeDb, `notifications/${notifId}`), cleanNotif).catch(err => {
         if (!isOfflineOrUnavailableError(err)) {
           console.debug('RTDB sendNotification notice:', err);
         }
       });
 
       // 3. Push to Firestore
-      setDoc(doc(firestoreDb, 'notifications', notifId), newNotif, { merge: true }).catch(err => {
+      setDoc(doc(firestoreDb, 'notifications', notifId), cleanNotif, { merge: true }).catch(err => {
         if (!isOfflineOrUnavailableError(err)) {
           console.debug('Firestore sendNotification notice:', err);
         }
@@ -1970,6 +1992,41 @@ class DataService {
     return all.filter(q => q.setNumber === setNumber);
   }
 
+  /**
+   * Randomly selects exactly 10 questions across the question sets in a non-sequential, shuffled manner.
+   */
+  pick10RandomQuestions(quizId?: string): Question[] {
+    const all = this.getQuestions(quizId);
+    if (!all || all.length === 0) return [];
+
+    const sets: (1 | 2 | 3 | 4 | 5)[] = [1, 2, 3, 4, 5];
+    const picked: Question[] = [];
+
+    // Randomly sample 2 distinct questions from each set to ensure balanced diversity
+    sets.forEach(s => {
+      const qInSet = all.filter(q => q.setNumber === s);
+      const shuffledSet = [...qInSet].sort(() => 0.5 - Math.random());
+      picked.push(...shuffledSet.slice(0, 2));
+    });
+
+    // If we have fewer than 10 (e.g. some sets were missing), fill up randomly from remaining questions
+    if (picked.length < 10) {
+      const pickedIds = new Set(picked.map(p => p.id));
+      const remaining = all.filter(q => !pickedIds.has(q.id));
+      const shuffledRemaining = [...remaining].sort(() => 0.5 - Math.random());
+      picked.push(...shuffledRemaining.slice(0, 10 - picked.length));
+    }
+
+    // Crucial: Thoroughly shuffle the 10 questions using Fisher-Yates so they are completely non-sequential
+    const final10 = picked.slice(0, 10);
+    for (let i = final10.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [final10[i], final10[j]] = [final10[j], final10[i]];
+    }
+
+    return final10;
+  }
+
   saveQuestion(question: Question, adminEmail = 'admin'): void {
     const questions = this.getQuestions();
     const idx = questions.findIndex(q => q.id === question.id);
@@ -2050,9 +2107,9 @@ class DataService {
     const existing = this.getStudentSession(quiz.id, student.id);
     if (existing) return existing;
 
-    const setNumber = ((Math.floor(Math.random() * 5) + 1) as 1 | 2 | 3 | 4 | 5);
-    const setQuestions = this.getQuestionsForSet(setNumber, quiz.id);
-    const selectedQuestionIds = setQuestions.map(q => q.id).slice(0, 10);
+    // Requirement: Randomly pick exactly 10 questions non-sequentially from the sets
+    const pickedQuestions = this.pick10RandomQuestions(quiz.id);
+    const selectedQuestionIds = pickedQuestions.map(q => q.id);
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + quiz.durationMinutes * 60 * 1000).toISOString();

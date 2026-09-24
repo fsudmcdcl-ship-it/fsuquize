@@ -5,6 +5,7 @@ import { dataService } from '../lib/dataService';
 import { Trophy, Award, Sparkles, Send, RefreshCw, CheckCircle2, Trash2, Plus, X, Save, Eye } from 'lucide-react';
 import { SpinningWheel } from '../components/SpinningWheel';
 import { WinnerPoster } from '../components/WinnerPoster';
+import { ParticipantsScorePoster } from './components/ParticipantsScorePoster';
 
 interface AdminWinnersProps {
   quizzes: Quiz[];
@@ -23,6 +24,7 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
   const [note, setNote] = useState('उत्कृष्ट प्रदर्शन गर्नुहुने सम्पूर्ण विद्यार्थीहरूलाई हार्दिक बधाई तथा शुभकामना!');
   const [wheelModalOpen, setWheelModalOpen] = useState(false);
   const [previewPoster, setPreviewPoster] = useState<WinnerRecord | null>(null);
+  const [showParticipantsPoster, setShowParticipantsPoster] = useState(false);
   const [publishedNotice, setPublishedNotice] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
 
@@ -238,6 +240,15 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowParticipantsPoster(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            title="सबै सहभागी विद्यार्थीहरूको नतिजा पोस्टर JPG/PNG रूपमा हेर्नुहोस् र डाउनलोड गर्नुहोस्"
+          >
+            <Trophy className="w-4 h-4" />
+            <span>🖼️ सहभागी नतिजा पोस्टर (JPG हेर्नुहोस्)</span>
+          </button>
+
           <button
             onClick={() => {
               setManualQuizTitle(`साप्ताहिक क्याम्पस क्विज - हप्ता ${winners.length + 1}`);
@@ -769,6 +780,15 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
         <WinnerPoster
           record={previewPoster}
           onClose={() => setPreviewPoster(null)}
+        />
+      )}
+
+      {/* Participants Score Poster Modal (Master Admin Graphic View with JPG/PNG export) */}
+      {showParticipantsPoster && activeQuiz && (
+        <ParticipantsScorePoster
+          quiz={activeQuiz}
+          participants={quizSubmissions}
+          onClose={() => setShowParticipantsPoster(false)}
         />
       )}
     </div>

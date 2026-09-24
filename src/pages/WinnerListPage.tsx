@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import type { WinnerRecord } from '../types/quiz';
+import type { WinnerRecord, QuizSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, formatDurationSeconds } from '../lib/nepaliUtils';
-import { Trophy, Award, Sparkles, Printer, Calendar, User } from 'lucide-react';
+import { Trophy, Award, Sparkles, Printer, Calendar, User, Search, Users, CheckCircle2 } from 'lucide-react';
 import { WinnerPoster } from '../components/WinnerPoster';
+import { dataService } from '../lib/dataService';
 
 interface WinnerListPageProps {
   winners: WinnerRecord[];
@@ -11,9 +12,28 @@ interface WinnerListPageProps {
 
 export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners }) => {
   const [selectedPosterRecord, setSelectedPosterRecord] = useState<WinnerRecord | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const latestWinner = winners[0];
   const pastWinners = winners.slice(1);
+
+  // Load participant submissions for the latest quiz
+  const allSessions: QuizSession[] = dataService
+    .getSessions(latestWinner?.quizId)
+    .filter(s => s.status === 'submitted' || s.status === 'expired')
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.timeTakenSeconds - b.timeTakenSeconds;
+    });
+
+  const filteredParticipants = allSessions.filter(s => {
+    const q = searchTerm.toLowerCase();
+    return (
+      s.studentName.toLowerCase().includes(q) ||
+      s.studentRoll.toLowerCase().includes(q) ||
+      s.studentClass.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
@@ -164,6 +184,156 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners }) => {
           हालसम्म कुनै विजेता घोषणा गरिएको छैन।
         </div>
       )}
+
+      {/* All Quiz Participants Table (Requirement: Normal users only see data in table form) */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div>
+            <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+              <Users className="w-4 h-4 text-red-600" />
+              <span>साप्ताहिक क्विज सहभागिता मूल्याङ्कन</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+              सबै सहभागी विद्यार्थीहरूको नतिजा तालिका
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              क्विजमा सहभागी सम्पूर्ण विद्यार्थीहरूको नाम, प्रोफाइल तस्बिर, कक्षा र प्राप्त प्राप्ताङ्क
+            </p>
+          </div>
+
+          <div className="relative w-full sm:w-72">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="विद्यार्थी वा रोल नं. खोज्नुहोस्..."
+              className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden focus:ring-2 focus:ring-red-500 font-medium"
+            />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+
+        {filteredParticipants.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="py-3 px-4 text-center w-16">स्थान</th>
+                  <th className="py-3 px-4">विद्यार्थी (नाम र तस्बिर)</th>
+                  <th className="py-3 px-4">रोल नम्बर</th>
+                  <th className="py-3 px-4">कक्षा / सेमेस्टर</th>
+                  <th className="py-3 px-4 text-center">प्राप्त अङ्क</th>
+                  <th className="py-3 px-4 text-center">लागेको समय</th>
+                  <th className="py-3 px-4 text-center">स्थिति</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredParticipants.map((p, idx) => {
+                  const rank = idx + 1;
+                  const isFirst = rank === 1;
+                  const isSecond = rank === 2;
+                  const isThird = rank === 3;
+
+                  return (
+                    <tr
+                      key={p.id}
+                      className={`hover:bg-slate-50/80 transition ${
+                        isFirst
+                          ? 'bg-amber-50/50'
+                          : isSecond
+                          ? 'bg-slate-50/40'
+                          : isThird
+                          ? 'bg-orange-50/30'
+                          : ''
+                      }`}
+                    >
+                      {/* Rank */}
+                      <td className="py-3 px-4 text-center">
+                        {isFirst ? (
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-slate-950 font-black text-xs shadow-xs">
+                            🥇
+                          </span>
+                        ) : isSecond ? (
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-200 text-slate-900 font-black text-xs shadow-xs">
+                            🥈
+                          </span>
+                        ) : isThird ? (
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-700 text-white font-black text-xs shadow-xs">
+                            🥉
+                          </span>
+                        ) : (
+                          <span className="font-bold text-slate-600 font-mono">
+                            {toNepaliDigits(rank)}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Student Profile Photo + Name */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 bg-slate-100 shrink-0 flex items-center justify-center">
+                            {p.studentPhoto ? (
+                              <img
+                                src={p.studentPhoto}
+                                alt={p.studentName}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-slate-200 text-slate-700 font-black text-sm flex items-center justify-center">
+                                {p.studentName ? p.studentName.trim().charAt(0).toUpperCase() : 'S'}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 block text-sm">
+                              {p.studentName}
+                            </span>
+                            <span className="text-[10px] text-slate-400">ID: {p.studentId}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Roll No */}
+                      <td className="py-3 px-4 font-semibold text-slate-700 font-mono">
+                        {toNepaliDigits(p.studentRoll)}
+                      </td>
+
+                      {/* Class / Semester */}
+                      <td className="py-3 px-4 text-slate-600">
+                        {p.studentClass} ({p.studentSemester})
+                      </td>
+
+                      {/* Score */}
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-block px-3 py-1 rounded-xl bg-amber-100 text-amber-900 font-black text-sm">
+                          {toNepaliDigits(p.score)}<span className="text-[10px] text-amber-700 font-normal">/१०</span>
+                        </span>
+                      </td>
+
+                      {/* Time Taken */}
+                      <td className="py-3 px-4 text-center font-mono text-slate-600">
+                        {formatDurationSeconds(p.timeTakenSeconds)}
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>सफल सम्पन्न</span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-slate-100">
+            कुनै सहभागी विद्यार्थी फेला परेन।
+          </div>
+        )}
+      </div>
 
       {/* Past Winners Archive */}
       {pastWinners.length > 0 && (

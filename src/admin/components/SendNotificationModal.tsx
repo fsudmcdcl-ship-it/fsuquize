@@ -91,8 +91,8 @@ export const SendNotificationModal: React.FC<SendNotificationModalProps> = ({
         title: title.trim(),
         message: message.trim(),
         targetType,
-        targetStudentId: targetType === 'specific' ? selectedStudentId : undefined,
-        targetStudentName: targetType === 'specific' && selectedStudent ? selectedStudent.name : undefined,
+        ...(targetType === 'specific' && selectedStudentId ? { targetStudentId: selectedStudentId } : {}),
+        ...(targetType === 'specific' && selectedStudent ? { targetStudentName: selectedStudent.name } : {}),
         type,
         adminEmail,
       });
