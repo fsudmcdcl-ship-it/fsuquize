@@ -20,13 +20,17 @@ import {
   GraduationCap,
   Clock,
   UserX,
-  Loader2
+  Loader2,
+  Bell,
+  MessageSquare
 } from 'lucide-react';
 import {
   getAdminLanguage,
   adminTranslations,
   type AdminLanguage
 } from './adminTranslations';
+import { WhatsAppModal } from './components/WhatsAppModal';
+import { SendNotificationModal } from './components/SendNotificationModal';
 
 interface AdminStudentsProps {
   students: Student[];
@@ -38,6 +42,12 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'blocked' | 'restricted'>('all');
   const [deleteConfirmStudent, setDeleteConfirmStudent] = useState<Student | null>(null);
+
+  // WhatsApp & Notification Modals State
+  const [whatsAppStudent, setWhatsAppStudent] = useState<Student | null>(null);
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [selectedStudentForNotification, setSelectedStudentForNotification] = useState<string | undefined>(undefined);
 
   // Edit Student Modal State
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -83,6 +93,8 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
             ? `विद्यार्थी ${student.name} को खाता सफलतापूर्वक स्वीकृत भयो (Approved successfully)`
             : `Student ${student.name} approved successfully.`
         );
+        setWhatsAppStudent(res.student || student);
+        setIsWhatsAppModalOpen(true);
       } else {
         showToast(res.error || 'Approval failed');
       }
@@ -296,6 +308,17 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedStudentForNotification(undefined);
+              setIsNotificationModalOpen(true);
+            }}
+            className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            <span>📢 नयाँ सूचना पठाउनुहोस्</span>
+          </button>
           <span className="text-xs font-bold text-slate-600 bg-white px-3.5 py-2 rounded-xl border border-slate-200 shadow-2xs">
             {t.totalStudents}: <b className="text-slate-900 font-mono text-sm">{filteredStudents.length}</b>
           </span>
@@ -477,6 +500,32 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
                           className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* WhatsApp Action Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWhatsAppStudent(student);
+                            setIsWhatsAppModalOpen(true);
+                          }}
+                          title="विद्यार्थीलाई WhatsApp मा जानकारी पठाउनुहोस्"
+                          className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Send Notification To This Student */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedStudentForNotification(student.id);
+                            setIsNotificationModalOpen(true);
+                          }}
+                          title="यस विद्यार्थीलाई व्यक्तिगत सूचना पठाउनुहोस्"
+                          className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition cursor-pointer"
+                        >
+                          <Bell className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
@@ -716,6 +765,22 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
           </div>
         </div>
       )}
+
+      {/* WhatsApp Modal */}
+      <WhatsAppModal
+        isOpen={isWhatsAppModalOpen}
+        onClose={() => setIsWhatsAppModalOpen(false)}
+        student={whatsAppStudent}
+      />
+
+      {/* Send Notification Modal */}
+      <SendNotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        students={students}
+        preselectedStudentId={selectedStudentForNotification}
+        onNotificationSent={onRefresh}
+      />
     </div>
   );
 };

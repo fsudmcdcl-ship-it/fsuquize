@@ -62,6 +62,16 @@
       }
     },
 
+    "notifications": {
+      ".indexOn": ["targetType", "targetStudentId", "createdAt"],
+      ".read": true,
+      ".write": "auth != null",
+      "$notificationId": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+
     "settings": {
       ".read": true,
       ".write": "auth != null",

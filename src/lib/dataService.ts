@@ -9,7 +9,9 @@ import type {
   AuditLog,
   PortalSettings,
   QuestionOption,
-  StudentStatus
+  StudentStatus,
+  AppNotification,
+  NotificationType,
 } from '../types/quiz';
 import { INITIAL_50_QUESTIONS } from './seedQuestions';
 import {
@@ -35,8 +37,21 @@ import {
   query,
   where,
 } from 'firebase/firestore';
-import { ref, get, child, update, set } from 'firebase/database';
+import { ref, get, child, update, set, onValue, remove } from 'firebase/database';
 import { signOut } from 'firebase/auth';
+
+export function isOfflineOrUnavailableError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes('offline') ||
+    msg.includes('client is offline') ||
+    msg.includes('unavailable') ||
+    msg.includes('failed-precondition') ||
+    msg.includes('network-request-failed') ||
+    msg.includes('could not reach cloud firestore backend')
+  );
+}
 
 const STORAGE_KEYS = {
   STUDENTS: 'fsudmc_students_v2',
@@ -50,6 +65,7 @@ const STORAGE_KEYS = {
   TIE_BREAKS: 'fsudmc_tie_breaks_v2',
   AUDIT_LOGS: 'fsudmc_audit_logs_v2',
   SETTINGS: 'fsudmc_settings_v2',
+  NOTIFICATIONS: 'fsudmc_notifications_v2',
   DRAFT_STATUS: 'fsudmc_draft_pending_v2',
   LAST_SYNC: 'fsudmc_last_sync_v2',
 };
@@ -90,6 +106,18 @@ function createInitialQuiz(): Quiz {
 const INITIAL_STUDENTS: Student[] = [];
 const INITIAL_SESSIONS: QuizSession[] = [];
 const INITIAL_WINNERS: WinnerRecord[] = [];
+const INITIAL_NOTIFICATIONS: AppNotification[] = [
+  {
+    id: 'notif_welcome',
+    title: 'साप्ताहिक हाजिरी जवाफ पोर्टलमा स्वागत छ! 🎓',
+    message: 'दार्चुला बहुमुखी क्याम्पस स्ववियुको आधिकारिक साप्ताहिक हाजिरी जवाफ पोर्टलमा सबै विद्यार्थी साथीहरूलाई हार्दिक स्वागत छ। हरेक हप्ता नयाँ क्विजमा भाग लिनुहोस् र आकर्षक पुरस्कार जित्नुहोस्!',
+    targetType: 'all',
+    type: 'info',
+    createdAt: new Date().toISOString(),
+    sentBy: 'admin@fsudmc.com',
+    readBy: []
+  }
+];
 
 type DataListener = () => void;
 
@@ -97,6 +125,7 @@ class DataService {
   private memoryStore: Record<string, string> = {};
   private listeners: Set<DataListener> = new Set();
   private isSyncing = false;
+  private isRtdbListening = false;
 
   private getStorage<T>(key: string, fallback: T): T {
     try {
@@ -131,11 +160,13 @@ class DataService {
 
   constructor() {
     this.initStorage();
-    // Synchronize initial data from Firestore in background
+    // Synchronize initial data from Realtime Database and Firestore
     if (typeof window !== 'undefined') {
+      this.initRealtimeDbListeners();
       setTimeout(() => {
+        this.syncFromRealtimeDb().catch(() => {});
         this.syncFromFirestore().catch(() => {});
-      }, 500);
+      }, 300);
     }
   }
 
@@ -146,6 +177,7 @@ class DataService {
     this.getStorage(STORAGE_KEYS.SESSIONS, INITIAL_SESSIONS);
     this.getStorage(STORAGE_KEYS.WINNERS, INITIAL_WINNERS);
     this.getStorage(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    this.getStorage(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
     this.getStorage(STORAGE_KEYS.AUDIT_LOGS, [
       {
         id: 'log_init',
@@ -156,6 +188,126 @@ class DataService {
         timestamp: new Date().toISOString()
       }
     ]);
+  }
+
+  /**
+   * Realtime Database live listeners for real-time reactive sync
+   */
+  private initRealtimeDbListeners() {
+    if (this.isRtdbListening || typeof window === 'undefined') return;
+    this.isRtdbListening = true;
+
+    try {
+      // 1. Live Notifications stream from Realtime Database
+      const notifsRef = ref(realtimeDb, 'notifications');
+      onValue(
+        notifsRef,
+        snapshot => {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            const items: AppNotification[] = typeof val === 'object' && val !== null ? Object.values(val) : [];
+            if (Array.isArray(items) && items.length > 0) {
+              this.mergeNotifications(items);
+            }
+          }
+        },
+        err => {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('RTDB notifications listener notice:', err);
+          }
+        }
+      );
+
+      // 2. Live Student approval / status stream from Realtime Database
+      const studentsRef = ref(realtimeDb, 'students');
+      onValue(
+        studentsRef,
+        snapshot => {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            const rtdbStudents: Student[] = typeof val === 'object' && val !== null ? Object.values(val) : [];
+            if (Array.isArray(rtdbStudents) && rtdbStudents.length > 0) {
+              const currentList = this.getStudents();
+              const map = new Map<string, Student>();
+              for (const s of currentList) map.set(s.id, s);
+              let hasChanged = false;
+
+              for (const r of rtdbStudents) {
+                if (r && r.id) {
+                  const existing = map.get(r.id);
+                  if (!existing || existing.status !== r.status || existing.approvedAt !== r.approvedAt) {
+                    map.set(r.id, { ...existing, ...r });
+                    hasChanged = true;
+                  }
+                }
+              }
+
+              if (hasChanged) {
+                const updatedList = Array.from(map.values());
+                this.setStorage(STORAGE_KEYS.STUDENTS, updatedList);
+
+                const cur = this.getCurrentStudent();
+                if (cur) {
+                  const match = updatedList.find(s => s.id === cur.id);
+                  if (match && (match.status !== cur.status || match.approvedAt !== cur.approvedAt)) {
+                    this.setCurrentStudent(match);
+                  }
+                }
+                this.notifyListeners();
+              }
+            }
+          }
+        },
+        err => {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('RTDB students listener notice:', err);
+          }
+        }
+      );
+    } catch (err) {
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('RTDB init listeners notice:', err);
+      }
+    }
+  }
+
+  /**
+   * One-time sync from Realtime Database on startup
+   */
+  async syncFromRealtimeDb(): Promise<void> {
+    try {
+      const snap = await get(ref(realtimeDb, 'students'));
+      if (snap.exists()) {
+        const data = snap.val() as Record<string, Student>;
+        const rtdbStudents = Object.values(data);
+        if (rtdbStudents.length > 0) {
+          const localStudents = this.getStudents();
+          const map = new Map<string, Student>();
+          for (const s of localStudents) map.set(s.id, s);
+          for (const s of rtdbStudents) {
+            if (s && s.id) {
+              const existing = map.get(s.id);
+              map.set(s.id, { ...existing, ...s });
+            }
+          }
+          this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(map.values()));
+          this.notifyListeners();
+        }
+      }
+
+      const notifSnap = await get(ref(realtimeDb, 'notifications'));
+      if (notifSnap.exists()) {
+        const val = notifSnap.val();
+        const items: AppNotification[] = typeof val === 'object' && val !== null ? Object.values(val) : [];
+        if (items.length > 0) {
+          this.mergeNotifications(items);
+        }
+      }
+    } catch (err) {
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('RTDB sync notice:', err);
+      }
+    }
   }
 
   // =================== LISTENERS & DRAFT/LIVE STATE ===================
@@ -551,8 +703,11 @@ class DataService {
 
     // Persist directly to Firestore backend
     this.updateStudentInFirestore(studentId, updatedStudent).catch(err => {
-      console.warn('Firestore updateStudent warning:', err);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore updateStudent notice:', err);
+      }
     });
+    this.saveStudentToRealtimeDb(updatedStudent).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -570,10 +725,13 @@ class DataService {
     students = students.filter(s => s.id !== studentId);
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
 
-    // Delete directly from Firestore backend
+    // Delete directly from Firestore backend & Realtime Database
     this.deleteStudentFromFirestore(studentId).catch(err => {
-      console.warn('Firestore deleteStudent warning:', err);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore deleteStudent notice:', err);
+      }
     });
+    remove(ref(realtimeDb, `students/${studentId}`)).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -590,7 +748,7 @@ class DataService {
     studentId: string,
     adminUid = 'admin',
     adminEmail = 'admin@fsudmc.com'
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; student?: Student; error?: string }> {
     try {
       const now = new Date().toISOString();
       const updates = {
@@ -600,27 +758,39 @@ class DataService {
         updatedAt: now,
       };
 
-      // 1. Await confirmation from Firestore!
-      await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
-
-      const student = this.getStudents().find(s => s.id === studentId);
-      if (student?.uid && student.uid !== studentId) {
-        await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
+      // 1. Await confirmation from Firestore (gracefully handling offline)
+      try {
+        await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
+        const student = this.getStudents().find(s => s.id === studentId);
+        if (student?.uid && student.uid !== studentId) {
+          await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
+        }
+      } catch (err) {
+        if (!isOfflineOrUnavailableError(err)) {
+          console.debug('Firestore approve sync notice:', err);
+        }
       }
 
       // 2. Update Realtime DB
-      set(child(ref(realtimeDb), `students/${studentId}/status`), 'approved').catch(() => {});
-      set(child(ref(realtimeDb), `students/${studentId}/approvedAt`), now).catch(() => {});
-      set(child(ref(realtimeDb), `students/${studentId}/approvedBy`), adminUid).catch(() => {});
+      update(ref(realtimeDb, `students/${studentId}`), {
+        ...updates,
+        status: 'approved',
+      }).catch(err => {
+        if (!isOfflineOrUnavailableError(err)) {
+          console.debug('Realtime DB approve notice:', err);
+        }
+      });
 
       // 3. Update local cache
       const students = this.getStudents();
       const idx = students.findIndex(s => s.id === studentId);
+      let updatedStudent: Student | undefined;
       if (idx >= 0) {
         students[idx] = {
           ...students[idx],
           ...updates,
         };
+        updatedStudent = students[idx];
         this.setStorage(STORAGE_KEYS.STUDENTS, students);
       }
 
@@ -630,15 +800,26 @@ class DataService {
         this.setCurrentStudent({ ...cur, ...updates });
       }
 
+      // 4. Send in-app notification to this specific student
+      this.sendNotification({
+        title: 'खाता सफलतापूर्वक स्वीकृत भयो (Account Approved)',
+        message: `नमस्ते ${updatedStudent?.name || ''}! तपाईंको विद्यार्थी खाता (ID: ${studentId}) प्रशासकद्वारा स्वीकृत गरिएको छ। अब तपाईं साप्ताहिक क्विजमा सहभागी हुन सक्नुहुन्छ।`,
+        targetType: 'specific',
+        targetStudentId: studentId,
+        targetStudentName: updatedStudent?.name || studentId,
+        type: 'success',
+        adminEmail,
+      }).catch(() => {});
+
       this.addAuditLog({
         adminEmail,
         action: 'विद्यार्थी आवेदन स्वीकृत (Approved)',
         target: studentId,
-        details: `विद्यार्थी ${student?.name || studentId} को खाता स्वीकृत गरियो`
+        details: `विद्यार्थी ${updatedStudent?.name || studentId} को खाता स्वीकृत गरियो`
       });
 
       this.notifyListeners();
-      return { success: true };
+      return { success: true, student: updatedStudent };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('approveStudentApplication error:', err);
@@ -660,16 +841,28 @@ class DataService {
         updatedAt: now,
       };
 
-      // 1. Await confirmation from Firestore!
-      await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
-
-      const student = this.getStudents().find(s => s.id === studentId);
-      if (student?.uid && student.uid !== studentId) {
-        await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
+      // 1. Await confirmation from Firestore
+      try {
+        await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
+        const student = this.getStudents().find(s => s.id === studentId);
+        if (student?.uid && student.uid !== studentId) {
+          await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
+        }
+      } catch (err) {
+        if (!isOfflineOrUnavailableError(err)) {
+          console.debug('Firestore reject sync notice:', err);
+        }
       }
 
       // 2. Update Realtime DB
-      set(child(ref(realtimeDb), `students/${studentId}/status`), 'rejected').catch(() => {});
+      update(ref(realtimeDb, `students/${studentId}`), {
+        ...updates,
+        status: 'rejected',
+      }).catch(err => {
+        if (!isOfflineOrUnavailableError(err)) {
+          console.debug('Realtime DB reject notice:', err);
+        }
+      });
 
       // 3. Update local cache
       const students = this.getStudents();
@@ -691,7 +884,7 @@ class DataService {
         adminEmail,
         action: 'विद्यार्थी आवेदन अस्वीकृत (Rejected)',
         target: studentId,
-        details: `विद्यार्थी ${student?.name || studentId} को खाता अस्वीकृत गरियो`
+        details: `विद्यार्थी ${studentId} को खाता अस्वीकृत गरियो`
       });
 
       this.notifyListeners();
@@ -769,20 +962,26 @@ class DataService {
       const studentRef = ref(realtimeDb, `students/${student.id}`);
       await update(studentRef, {
         id: student.id,
+        studentId: student.id,
+        uid: student.uid || student.id,
         name: student.name,
         rollNo: student.rollNo,
         class: student.class,
         semester: student.semester,
         phone: student.phone,
         username: student.username,
+        email: student.email || student.authEmail || `${student.id}@fsudmc.edu.np`,
         status: student.status || 'pending',
+        role: 'student',
         appliedAt: student.appliedAt || student.createdAt,
         createdAt: student.createdAt,
       });
       return { success: true };
     } catch (err: unknown) {
       const fbError = err as { code?: string; message?: string };
-      console.warn('Realtime Database student sync warning:', fbError?.code, fbError?.message);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Realtime Database student sync notice:', fbError?.code, fbError?.message);
+      }
       return { success: false, error: fbError?.message };
     }
   }
@@ -792,17 +991,38 @@ class DataService {
     if (!raw) return null;
     const queryUpper = raw.toUpperCase();
 
-    // 1. Check direct doc by student ID in Firestore
+    // 0. Check local cache first
+    const local = this.getStudents();
+    const localFound = local.find(
+      s => s.id.toUpperCase() === queryUpper || s.username.toUpperCase() === queryUpper || s.phone === raw || s.rollNo.toUpperCase() === queryUpper
+    );
+    if (localFound) return localFound;
+
+    // 1. Check Realtime Database first (fast, primary environment)
+    try {
+      const rtdbSnap = await get(child(ref(realtimeDb), `students/${queryUpper}`));
+      if (rtdbSnap.exists()) {
+        return rtdbSnap.val() as Student;
+      }
+    } catch (err) {
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Realtime Database fallback notice:', err);
+      }
+    }
+
+    // 2. Check direct doc by student ID in Firestore
     try {
       const docSnap = await getDoc(doc(firestoreDb, 'students', queryUpper));
       if (docSnap.exists()) {
         return docSnap.data() as Student;
       }
     } catch (err) {
-      console.warn('Firestore doc fetch notice:', err);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore doc fetch notice:', err);
+      }
     }
 
-    // 2. Query Firestore by phone
+    // 3. Query Firestore by phone
     try {
       const qPhone = query(collection(firestoreDb, 'students'), where('phone', '==', raw));
       const snapPhone = await getDocs(qPhone);
@@ -810,10 +1030,12 @@ class DataService {
         return snapPhone.docs[0].data() as Student;
       }
     } catch (err) {
-      console.warn('Firestore query by phone notice:', err);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore query by phone notice:', err);
+      }
     }
 
-    // 3. Query Firestore by rollNo
+    // 4. Query Firestore by rollNo
     try {
       const qRoll = query(collection(firestoreDb, 'students'), where('rollNo', '==', raw));
       const snapRoll = await getDocs(qRoll);
@@ -821,10 +1043,12 @@ class DataService {
         return snapRoll.docs[0].data() as Student;
       }
     } catch (err) {
-      console.warn('Firestore query by roll notice:', err);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore query by roll notice:', err);
+      }
     }
 
-    // 4. Query Firestore by username
+    // 5. Query Firestore by username
     try {
       const qUser = query(collection(firestoreDb, 'students'), where('username', '==', queryUpper));
       const snapUser = await getDocs(qUser);
@@ -832,17 +1056,9 @@ class DataService {
         return snapUser.docs[0].data() as Student;
       }
     } catch (err) {
-      console.warn('Firestore query by username notice:', err);
-    }
-
-    // 5. Fallback check from Realtime Database
-    try {
-      const rtdbSnap = await get(child(ref(realtimeDb), `students/${queryUpper}`));
-      if (rtdbSnap.exists()) {
-        return rtdbSnap.val() as Student;
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore query by username notice:', err);
       }
-    } catch (err) {
-      console.warn('Realtime Database fallback notice:', err);
     }
 
     return null;
@@ -852,7 +1068,9 @@ class DataService {
     try {
       await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
     } catch (err) {
-      console.warn('Error updating student in Firestore:', err);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Error updating student in Firestore:', err);
+      }
     }
   }
 
@@ -860,7 +1078,9 @@ class DataService {
     try {
       await deleteDoc(doc(firestoreDb, 'students', studentId));
     } catch (err) {
-      console.warn('Error deleting student from Firestore:', err);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Error deleting student from Firestore:', err);
+      }
     }
   }
 
@@ -942,7 +1162,25 @@ class DataService {
           this.setStorage(STORAGE_KEYS.QUESTIONS, Array.from(qMap.values()));
         }
       } catch (qErr) {
-        console.warn('Questions sync notice:', qErr);
+        if (!isOfflineOrUnavailableError(qErr)) {
+          console.debug('Questions sync notice:', qErr);
+        }
+      }
+
+      // 7. Notifications collection
+      try {
+        const notifsSnap = await getDocs(collection(firestoreDb, 'notifications'));
+        if (!notifsSnap.empty) {
+          const firestoreNotifs: AppNotification[] = [];
+          notifsSnap.forEach(d => {
+            firestoreNotifs.push(d.data() as AppNotification);
+          });
+          this.mergeNotifications(firestoreNotifs);
+        }
+      } catch (nErr) {
+        if (!isOfflineOrUnavailableError(nErr)) {
+          console.debug('Notifications sync notice:', nErr);
+        }
       }
 
       const now = new Date().toISOString();
@@ -952,7 +1190,9 @@ class DataService {
       return { success: true, studentCount: this.getStudents().length };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn('Firestore sync warning:', msg);
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore sync notice:', msg);
+      }
       return { success: false, studentCount: this.getStudents().length, error: msg };
     } finally {
       this.isSyncing = false;
@@ -1004,6 +1244,13 @@ class DataService {
         await setDoc(doc(firestoreDb, 'winners', w.quizId), w, { merge: true });
       }
 
+      // 6. Push notifications to Firestore & Realtime DB
+      const notifs = this.getNotifications();
+      for (const n of notifs) {
+        await setDoc(doc(firestoreDb, 'notifications', n.id), n, { merge: true }).catch(() => {});
+        set(ref(realtimeDb, `notifications/${n.id}`), n).catch(() => {});
+      }
+
       this.setDraftChanges(false);
       const now = new Date().toISOString();
       this.setLastSyncedAt(now);
@@ -1021,6 +1268,159 @@ class DataService {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, message: `ग्लोबल लाइभ गर्न समस्या: ${msg}` };
     }
+  }
+
+  // =================== NOTIFICATIONS ===================
+
+  getNotifications(): AppNotification[] {
+    return this.getStorage<AppNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+  }
+
+  getNotificationsForStudent(studentId?: string): AppNotification[] {
+    const all = this.getNotifications();
+    if (!studentId) {
+      return all.filter(n => n.targetType === 'all');
+    }
+    return all.filter(n => n.targetType === 'all' || n.targetStudentId === studentId);
+  }
+
+  getUnreadNotificationCount(studentId?: string): number {
+    if (!studentId) return 0;
+    const forStudent = this.getNotificationsForStudent(studentId);
+    return forStudent.filter(n => !n.readBy || !n.readBy.includes(studentId)).length;
+  }
+
+  markNotificationAsRead(notificationId: string, studentId: string): void {
+    const notifs = this.getNotifications();
+    const idx = notifs.findIndex(n => n.id === notificationId);
+    if (idx >= 0) {
+      const readBy = notifs[idx].readBy || [];
+      if (!readBy.includes(studentId)) {
+        notifs[idx].readBy = [...readBy, studentId];
+        this.setStorage(STORAGE_KEYS.NOTIFICATIONS, notifs);
+        set(ref(realtimeDb, `notifications/${notificationId}/readBy`), notifs[idx].readBy).catch(() => {});
+        this.notifyListeners();
+      }
+    }
+  }
+
+  markAllNotificationsAsRead(studentId: string): void {
+    const notifs = this.getNotifications();
+    let changed = false;
+    for (const n of notifs) {
+      if (n.targetType === 'all' || n.targetStudentId === studentId) {
+        n.readBy = n.readBy || [];
+        if (!n.readBy.includes(studentId)) {
+          n.readBy.push(studentId);
+          changed = true;
+          set(ref(realtimeDb, `notifications/${n.id}/readBy`), n.readBy).catch(() => {});
+        }
+      }
+    }
+    if (changed) {
+      this.setStorage(STORAGE_KEYS.NOTIFICATIONS, notifs);
+      this.notifyListeners();
+    }
+  }
+
+  mergeNotifications(incoming: AppNotification[]): void {
+    const local = this.getNotifications();
+    const map = new Map<string, AppNotification>();
+    for (const n of local) map.set(n.id, n);
+    for (const n of incoming) {
+      if (n && n.id) {
+        const existing = map.get(n.id);
+        map.set(n.id, { ...existing, ...n });
+      }
+    }
+    const merged = Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    this.setStorage(STORAGE_KEYS.NOTIFICATIONS, merged);
+    this.notifyListeners();
+  }
+
+  async sendNotification(params: {
+    title: string;
+    message: string;
+    targetType: 'all' | 'specific';
+    targetStudentId?: string;
+    targetStudentName?: string;
+    type?: NotificationType;
+    adminEmail?: string;
+  }): Promise<{ success: boolean; notification?: AppNotification; error?: string }> {
+    try {
+      const notifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const now = new Date().toISOString();
+      const newNotif: AppNotification = {
+        id: notifId,
+        title: params.title.trim(),
+        message: params.message.trim(),
+        targetType: params.targetType,
+        targetStudentId: params.targetStudentId,
+        targetStudentName: params.targetStudentName,
+        type: params.type || 'info',
+        createdAt: now,
+        sentBy: params.adminEmail || 'admin@fsudmc.com',
+        readBy: [],
+      };
+
+      // 1. Update local storage
+      const list = this.getNotifications();
+      list.unshift(newNotif);
+      this.setStorage(STORAGE_KEYS.NOTIFICATIONS, list);
+
+      // 2. Push to Realtime Database
+      set(ref(realtimeDb, `notifications/${notifId}`), newNotif).catch(err => {
+        if (!isOfflineOrUnavailableError(err)) {
+          console.debug('RTDB sendNotification notice:', err);
+        }
+      });
+
+      // 3. Push to Firestore
+      setDoc(doc(firestoreDb, 'notifications', notifId), newNotif, { merge: true }).catch(err => {
+        if (!isOfflineOrUnavailableError(err)) {
+          console.debug('Firestore sendNotification notice:', err);
+        }
+      });
+
+      // 4. Audit log
+      this.addAuditLog({
+        adminEmail: newNotif.sentBy,
+        action: 'सूचना पठाइयो',
+        target:
+          newNotif.targetType === 'all'
+            ? 'सबै विद्यार्थीहरू'
+            : `विद्यार्थी: ${newNotif.targetStudentName || newNotif.targetStudentId}`,
+        details: `शीर्षक: ${newNotif.title}`,
+      });
+
+      this.notifyListeners();
+      return { success: true, notification: newNotif };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  }
+
+  async deleteNotification(notificationId: string, adminEmail = 'admin@fsudmc.com'): Promise<void> {
+    const list = this.getNotifications().filter(n => n.id !== notificationId);
+    this.setStorage(STORAGE_KEYS.NOTIFICATIONS, list);
+
+    // Delete from Realtime Database
+    remove(ref(realtimeDb, `notifications/${notificationId}`)).catch(() => {});
+
+    // Delete from Firestore
+    deleteDoc(doc(firestoreDb, 'notifications', notificationId)).catch(() => {});
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'सूचना हटाइयो',
+      target: notificationId,
+      details: 'सूचना प्रणालीबाट हटाइयो',
+    });
+
+    this.notifyListeners();
   }
 
   // =================== QUIZZES ===================

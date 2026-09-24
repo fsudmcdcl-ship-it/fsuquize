@@ -18,7 +18,8 @@ import {
   Radio,
   Globe,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Bell
 } from 'lucide-react';
 import { formatNepalDate } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
@@ -28,6 +29,7 @@ import {
   adminTranslations,
   type AdminLanguage
 } from './adminTranslations';
+import { SendNotificationModal } from './components/SendNotificationModal';
 
 interface AdminLayoutProps {
   currentPath: string;
@@ -54,6 +56,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const [isPublishingLive, setIsPublishingLive] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [hasDrafts, setHasDrafts] = useState<boolean>(() => dataService.hasUnsavedDrafts());
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
 
   const t = adminTranslations[lang];
 
@@ -178,6 +181,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsNotificationModalOpen(true)}
+            className="p-1.5 rounded-lg bg-blue-600 text-white"
+            title={lang === 'ne' ? 'नयाँ सूचना पठाउनुहोस्' : 'Send Notification'}
+          >
+            <Bell className="w-4 h-4" />
+          </button>
           <button
             onClick={handleLanguageToggle}
             className="p-1.5 rounded-lg bg-slate-800 text-xs font-bold text-slate-300 border border-slate-700"
@@ -377,6 +387,15 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
             {/* Language toggle button */}
             <button
+              onClick={() => setIsNotificationModalOpen(true)}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              title={lang === 'ne' ? 'नयाँ सूचना पठाउनुहोस्' : 'Send Notification'}
+            >
+              <Bell className="w-3.5 h-3.5 text-blue-200" />
+              <span>{lang === 'ne' ? 'सूचना पठाउनुहोस्' : 'Notification'}</span>
+            </button>
+
+            <button
               onClick={handleLanguageToggle}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer border border-slate-200"
               title={t.switchLanguage}
@@ -398,6 +417,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         {/* Page Content */}
         <main className="p-4 sm:p-8 flex-1">{children}</main>
       </div>
+
+      {/* Global Send Notification Modal for Admin */}
+      <SendNotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        students={dataService.getStudents()}
+        onNotificationSent={onRefresh}
+      />
     </div>
   );
 };

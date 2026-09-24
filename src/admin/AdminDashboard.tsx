@@ -18,7 +18,11 @@ import {
   CheckCircle2,
   Loader2,
   X,
+  Bell,
+  MessageSquare,
 } from 'lucide-react';
+import { WhatsAppModal } from './components/WhatsAppModal';
+import { SendNotificationModal } from './components/SendNotificationModal';
 
 interface AdminDashboardProps {
   students: Student[];
@@ -41,6 +45,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [whatsAppStudent, setWhatsAppStudent] = useState<Student | null>(null);
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [notificationTargetStudentId, setNotificationTargetStudentId] = useState<string | undefined>(undefined);
 
   const pendingStudents = students.filter(s => s.status === 'pending');
   const activeStudents = students.filter(s => s.status === 'active' || s.status === 'approved').length;
@@ -69,6 +77,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const res = await dataService.approveStudentApplication(student.id, adminUid, adminEmail);
       if (res.success) {
         showToast(`विद्यार्थी ${student.name} (${student.id}) को आवेदन सफलतापूर्वक स्वीकृत भयो (Approved successfully)`);
+        setWhatsAppStudent(res.student || student);
+        setIsWhatsAppModalOpen(true);
         if (onRefresh) onRefresh();
       } else {
         showToast(`स्वीकृत गर्न सकिएन: ${res.error || 'अज्ञात त्रुटि'}`, 'error');
@@ -159,6 +169,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Quick Action Shortcuts */}
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              setNotificationTargetStudentId(undefined);
+              setIsNotificationModalOpen(true);
+            }}
+            className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            <span>📢 सूचना पठाउनुहोस्</span>
+          </button>
           <button
             onClick={() => navigate(`/${adminSlug}/students`)}
             className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
@@ -371,6 +391,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           >
                             <Ban className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* WHATSAPP ACTION */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWhatsAppStudent(student);
+                              setIsWhatsAppModalOpen(true);
+                            }}
+                            title="विद्यार्थीलाई WhatsApp मा सन्देश पठाउनुहोस्"
+                            className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -381,6 +414,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* WhatsApp Modal */}
+      <WhatsAppModal
+        isOpen={isWhatsAppModalOpen}
+        onClose={() => setIsWhatsAppModalOpen(false)}
+        student={whatsAppStudent}
+      />
+
+      {/* Send Notification Modal */}
+      <SendNotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        students={students}
+        preselectedStudentId={notificationTargetStudentId}
+        onNotificationSent={onRefresh}
+      />
 
       {/* Active Quiz Card */}
       {activeQuiz && (

@@ -11,6 +11,7 @@ import {
   setPersistence,
   indexedDBLocalPersistence,
   browserLocalPersistence,
+  inMemoryPersistence,
   type Auth,
   type User,
 } from "firebase/auth";
@@ -18,13 +19,25 @@ import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  memoryLocalCache,
   getFirestore,
   enableNetwork,
   disableNetwork,
   type Firestore
 } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
-import { getDatabase, type Database } from "firebase/database";
+import {
+  getDatabase,
+  ref,
+  get,
+  set,
+  update,
+  onValue,
+  child,
+  push,
+  remove,
+  type Database
+} from "firebase/database";
 
 // Web app's Firebase configuration provided by user
 export const firebaseConfig = {
@@ -42,7 +55,7 @@ export const firebaseConfig = {
 export const app: FirebaseApp =
   getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// Initialize Firestore with robust local persistent cache & multi-tab support
+// Initialize Firestore with robust local persistent cache & fallback
 let firestoreInstance: Firestore;
 try {
   firestoreInstance = initializeFirestore(app, {
@@ -52,8 +65,14 @@ try {
     ignoreUndefinedProperties: true,
   });
 } catch {
-  // Fallback to getFirestore if already initialized or in unsupported environment
-  firestoreInstance = getFirestore(app);
+  try {
+    firestoreInstance = initializeFirestore(app, {
+      localCache: memoryLocalCache(),
+      ignoreUndefinedProperties: true,
+    });
+  } catch {
+    firestoreInstance = getFirestore(app);
+  }
 }
 
 export const firestoreDb: Firestore = firestoreInstance;
@@ -89,11 +108,12 @@ export const firebaseStorage: FirebaseStorage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
 
-// Configure modern IndexedDB / local storage persistence so auth does not rely on third-party cookies
+// Configure modern IndexedDB / local storage persistence without third-party cookie dependencies
 if (typeof window !== "undefined") {
-  setPersistence(auth, indexedDBLocalPersistence).catch(() => {
-    setPersistence(auth, browserLocalPersistence).catch(() => {});
-  });
+  setPersistence(auth, indexedDBLocalPersistence)
+    .catch(() => setPersistence(auth, browserLocalPersistence))
+    .catch(() => setPersistence(auth, inMemoryPersistence))
+    .catch(() => {});
 }
 
 export const analytics = null;
@@ -187,9 +207,10 @@ const studentAuthApp: FirebaseApp =
 export const studentAuth: Auth = getAuth(studentAuthApp);
 
 if (typeof window !== "undefined") {
-  setPersistence(studentAuth, indexedDBLocalPersistence).catch(() => {
-    setPersistence(studentAuth, browserLocalPersistence).catch(() => {});
-  });
+  setPersistence(studentAuth, indexedDBLocalPersistence)
+    .catch(() => setPersistence(studentAuth, browserLocalPersistence))
+    .catch(() => setPersistence(studentAuth, inMemoryPersistence))
+    .catch(() => {});
 }
 
 /**
@@ -355,5 +376,13 @@ export {
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  ref as rtdbRef,
+  set as rtdbSet,
+  get as rtdbGet,
+  update as rtdbUpdate,
+  onValue as rtdbOnValue,
+  child as rtdbChild,
+  push as rtdbPush,
+  remove as rtdbRemove,
 };
-export type { User };
+export type { User, Database };

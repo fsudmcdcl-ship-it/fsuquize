@@ -160,3 +160,18 @@ export interface PortalSettings {
   contactSupport: string;
   adminSlug: string;
 }
+
+export type NotificationType = 'info' | 'success' | 'warning' | 'urgent';
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  targetType: 'all' | 'specific';
+  targetStudentId?: string;
+  targetStudentName?: string;
+  type: NotificationType;
+  createdAt: string;
+  sentBy: string;
+  readBy?: string[];
+}

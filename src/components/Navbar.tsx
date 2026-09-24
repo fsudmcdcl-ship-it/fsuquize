@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Student } from '../types/quiz';
 import { BookOpen, Trophy, BarChart2, User, LogOut, Menu, X, CheckCircle, Award, ExternalLink, Clock, Phone, Mail } from 'lucide-react';
 import { getLiveNepalDateTimeString } from '../lib/nepaliUtils';
+import { NotificationBell } from './NotificationBell';
 
 interface NavbarProps {
   currentPath: string;
@@ -155,6 +156,11 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
               <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
             </a>
 
+            {/* In-App Notifications Bell */}
+            <div className="ml-1">
+              <NotificationBell student={student} />
+            </div>
+
             {/* If student logged in, show user preview and logout */}
             {student && (
               <div className="flex items-center gap-2 ml-3 pl-3 border-l border-slate-200">
@@ -194,6 +200,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
 
           {/* Mobile menu trigger */}
           <div className="flex items-center gap-2 md:hidden">
+            {/* Mobile Notification Bell */}
+            <NotificationBell student={student} />
+
             {student && (
               <div
                 onClick={() => handleNav(isPending ? '/pending' : '/profile')}
