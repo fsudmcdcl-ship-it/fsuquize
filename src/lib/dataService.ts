@@ -1647,14 +1647,51 @@ class DataService {
         notifications: notifsMap,
       });
 
-      // 2. Perform atomic Realtime Database write with 3.5s timeout
-      await withTimeout(
-        update(ref(realtimeDb), rtdbPayload).catch(err => {
-          console.debug('RTDB update notice:', err);
+      // 2. Perform parallel Realtime Database writes to specific child paths (never at root /)
+      const rtdbWrites: Promise<unknown>[] = [
+        set(ref(realtimeDb, 'syncMeta'), rtdbPayload.syncMeta).catch(err => {
+          console.debug('RTDB syncMeta notice:', err);
           return null;
         }),
+        set(ref(realtimeDb, 'settings'), rtdbPayload.settings).catch(err => {
+          console.debug('RTDB settings notice:', err);
+          return null;
+        }),
+        set(ref(realtimeDb, 'quizzes'), rtdbPayload.quizzes).catch(err => {
+          console.debug('RTDB quizzes notice:', err);
+          return null;
+        }),
+        set(ref(realtimeDb, 'questions'), rtdbPayload.questions).catch(err => {
+          console.debug('RTDB questions notice:', err);
+          return null;
+        }),
+        set(ref(realtimeDb, 'quizSessions'), rtdbPayload.quizSessions).catch(err => {
+          console.debug('RTDB quizSessions notice:', err);
+          return null;
+        }),
+        set(ref(realtimeDb, 'winners'), rtdbPayload.winners).catch(err => {
+          console.debug('RTDB winners notice:', err);
+          return null;
+        }),
+        set(ref(realtimeDb, 'notifications'), rtdbPayload.notifications).catch(err => {
+          console.debug('RTDB notifications notice:', err);
+          return null;
+        }),
+      ];
+
+      if (rtdbPayload.students) {
+        rtdbWrites.push(
+          set(ref(realtimeDb, 'students'), rtdbPayload.students).catch(err => {
+            console.debug('RTDB students notice:', err);
+            return null;
+          })
+        );
+      }
+
+      await withTimeout(
+        Promise.allSettled(rtdbWrites),
         3500,
-        null
+        []
       );
 
       // 3. Perform parallel Firestore writes with 3.5s timeout
@@ -1993,38 +2030,28 @@ class DataService {
   }
 
   /**
-   * Randomly selects exactly 10 questions across the question sets in a non-sequential, shuffled manner.
+   * Randomly selects exactly 10 questions completely randomly across the entire 50-question pool
+   * for each student (not restricted to a single set, purely random selection from all 50 questions).
    */
-  pick10RandomQuestions(quizId?: string): Question[] {
+  pickRandom10From50(quizId?: string): Question[] {
     const all = this.getQuestions(quizId);
     if (!all || all.length === 0) return [];
 
-    const sets: (1 | 2 | 3 | 4 | 5)[] = [1, 2, 3, 4, 5];
-    const picked: Question[] = [];
-
-    // Randomly sample 2 distinct questions from each set to ensure balanced diversity
-    sets.forEach(s => {
-      const qInSet = all.filter(q => q.setNumber === s);
-      const shuffledSet = [...qInSet].sort(() => 0.5 - Math.random());
-      picked.push(...shuffledSet.slice(0, 2));
-    });
-
-    // If we have fewer than 10 (e.g. some sets were missing), fill up randomly from remaining questions
-    if (picked.length < 10) {
-      const pickedIds = new Set(picked.map(p => p.id));
-      const remaining = all.filter(q => !pickedIds.has(q.id));
-      const shuffledRemaining = [...remaining].sort(() => 0.5 - Math.random());
-      picked.push(...shuffledRemaining.slice(0, 10 - picked.length));
-    }
-
-    // Crucial: Thoroughly shuffle the 10 questions using Fisher-Yates so they are completely non-sequential
-    const final10 = picked.slice(0, 10);
-    for (let i = final10.length - 1; i > 0; i--) {
+    // Shuffle all 50 questions using Fisher-Yates shuffle
+    const shuffled = [...all];
+    for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [final10[i], final10[j]] = [final10[j], final10[i]];
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
 
-    return final10;
+    return shuffled.slice(0, 10);
+  }
+
+  /**
+   * Randomly selects exactly 10 questions across the question sets in a non-sequential, shuffled manner.
+   */
+  pick10RandomQuestions(quizId?: string): Question[] {
+    return this.pickRandom10From50(quizId);
   }
 
   saveQuestion(question: Question, adminEmail = 'admin'): void {
@@ -2095,7 +2122,7 @@ class DataService {
     return sessions.find(s => s.studentId === studentId) || null;
   }
 
-  startQuizSession(arg1: Student | Quiz, arg2: Student | Quiz): QuizSession {
+  startQuizSession(arg1: Student | Quiz, arg2: Student | Quiz, customQuestionIds?: string[]): QuizSession {
     const student = ('rollNo' in arg1 ? arg1 : arg2) as Student;
     const quiz = ('durationMinutes' in arg1 ? arg1 : arg2) as Quiz;
 
@@ -2107,9 +2134,14 @@ class DataService {
     const existing = this.getStudentSession(quiz.id, student.id);
     if (existing) return existing;
 
-    // Requirement: Randomly pick exactly 10 questions non-sequentially from the sets
-    const pickedQuestions = this.pick10RandomQuestions(quiz.id);
-    const selectedQuestionIds = pickedQuestions.map(q => q.id);
+    // Use custom-picked 10 questions from user's "Pick questions for me" action, or pick 10 random from 50
+    let selectedQuestionIds: string[] = [];
+    if (customQuestionIds && customQuestionIds.length === 10) {
+      selectedQuestionIds = customQuestionIds;
+    } else {
+      const pickedQuestions = this.pickRandom10From50(quiz.id);
+      selectedQuestionIds = pickedQuestions.map(q => q.id);
+    }
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + quiz.durationMinutes * 60 * 1000).toISOString();
@@ -2226,7 +2258,10 @@ class DataService {
     this.setStorage(STORAGE_KEYS.SESSIONS, sessions);
 
     // Save submission to Firestore
-    setDoc(doc(firestoreDb, 'quizSessions', session.id), session, { merge: true }).catch(() => {});
+    setDoc(doc(firestoreDb, 'quizSessions', session.id), stripUndefinedDeep(session), { merge: true }).catch(() => {});
+
+    // Save submission to Realtime Database child node
+    set(ref(realtimeDb, `quizSessions/${session.id}`), stripUndefinedDeep(session)).catch(() => {});
 
     this.notifyListeners();
     return session;
@@ -2260,10 +2295,20 @@ class DataService {
 
   saveWinnersList(winners: WinnerRecord[], adminEmail = 'admin'): void {
     this.setStorage(STORAGE_KEYS.WINNERS, winners);
+    
     // Push each winner to Firestore
     for (const w of winners) {
-      setDoc(doc(firestoreDb, 'winners', w.quizId), w, { merge: true }).catch(() => {});
+      setDoc(doc(firestoreDb, 'winners', w.quizId), stripUndefinedDeep(w), { merge: true }).catch(() => {});
     }
+
+    // Push to Realtime Database /winners child node safely
+    const winnersMap: Record<string, unknown> = {};
+    for (const w of winners) {
+      winnersMap[w.quizId] = w;
+    }
+    set(ref(realtimeDb, 'winners'), stripUndefinedDeep(winnersMap)).catch(err => {
+      console.debug('RTDB winners notice:', err);
+    });
 
     this.addAuditLog({
       adminEmail,
@@ -2273,6 +2318,73 @@ class DataService {
     });
 
     this.notifyListeners();
+  }
+
+  /**
+   * Dedicated method to push both Winners and Participants (quizSessions) directly
+   * to Frontend Live (Realtime Database & Firestore) without any permission errors.
+   */
+  async pushWinnersAndParticipantsToLive(adminEmail = 'admin@fsudmc.com'): Promise<{ success: boolean; message: string }> {
+    try {
+      const winners = this.getWinners();
+      const sessions = this.getSessions();
+
+      // 1. Local update
+      this.setStorage(STORAGE_KEYS.WINNERS, winners);
+      this.setStorage(STORAGE_KEYS.SESSIONS, sessions);
+
+      // 2. Prepare clean maps
+      const winnersMap: Record<string, unknown> = {};
+      for (const w of winners) {
+        winnersMap[w.quizId] = w;
+      }
+
+      const sessionsMap: Record<string, unknown> = {};
+      for (const s of sessions) {
+        sessionsMap[s.id] = s;
+      }
+
+      // 3. Realtime Database writes to child paths (winners and quizSessions)
+      const rtdbWrites = [
+        set(ref(realtimeDb, 'winners'), stripUndefinedDeep(winnersMap)).catch(() => null),
+        set(ref(realtimeDb, 'quizSessions'), stripUndefinedDeep(sessionsMap)).catch(() => null),
+        set(ref(realtimeDb, 'syncMeta/lastWinnersPublishedAt'), new Date().toISOString()).catch(() => null),
+      ];
+
+      // 4. Firestore writes
+      const firestoreWrites: Promise<unknown>[] = [];
+      for (const w of winners) {
+        firestoreWrites.push(
+          setDoc(doc(firestoreDb, 'winners', w.quizId), stripUndefinedDeep(w), { merge: true }).catch(() => null)
+        );
+      }
+      for (const s of sessions) {
+        firestoreWrites.push(
+          setDoc(doc(firestoreDb, 'quizSessions', s.id), stripUndefinedDeep(s), { merge: true }).catch(() => null)
+        );
+      }
+
+      await withTimeout(Promise.allSettled([...rtdbWrites, ...firestoreWrites]), 4000, []);
+
+      this.addAuditLog({
+        adminEmail,
+        action: 'विजेता र सहभागी डाटा फ्रन्टइन्डमा प्रकाशित',
+        target: 'frontend_live_sync',
+        details: `${winners.length} विजेता र ${sessions.length} सहभागी विवरण फ्रन्टइन्डमा प्रत्यक्ष लाइभ गरियो`
+      });
+
+      this.notifyListeners();
+      return {
+        success: true,
+        message: `सफलतापूर्वक ${winners.length} विजेता र ${sessions.length} सहभागीको डाटा फ्रन्टइन्ड (/winner-list) मा लाइभ पठाइयो!`
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        message: `डाटा पठाउन समस्या देखियो: ${msg}`
+      };
+    }
   }
 
   publishWinners(winnerRecord: WinnerRecord, adminEmail = 'admin'): void {

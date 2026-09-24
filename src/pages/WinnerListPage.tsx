@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { WinnerRecord, QuizSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, formatDurationSeconds } from '../lib/nepaliUtils';
 import { Trophy, Award, Sparkles, Printer, Calendar, User, Search, Users, CheckCircle2 } from 'lucide-react';
@@ -10,16 +10,29 @@ interface WinnerListPageProps {
   navigate: (path: string) => void;
 }
 
-export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners }) => {
+export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initialWinners }) => {
   const [selectedPosterRecord, setSelectedPosterRecord] = useState<WinnerRecord | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
 
+  // Subscribe to real-time data changes so frontend updates live when admin pushes
+  useEffect(() => {
+    const unsub = dataService.subscribe(() => {
+      setRefreshKey(k => k + 1);
+    });
+    return unsub;
+  }, []);
+
+  const winners = dataService.getWinners().length > 0 ? dataService.getWinners() : initialWinners;
+  const quizzes = dataService.getQuizzes();
   const latestWinner = winners[0];
   const pastWinners = winners.slice(1);
 
-  // Load participant submissions for the latest quiz
+  const [selectedQuizId, setSelectedQuizId] = useState<string>(() => latestWinner?.quizId || quizzes[0]?.id || 'all');
+
+  // Load participant submissions for the selected quiz (or all if 'all')
   const allSessions: QuizSession[] = dataService
-    .getSessions(latestWinner?.quizId)
+    .getSessions(selectedQuizId === 'all' ? undefined : selectedQuizId)
     .filter(s => s.status === 'submitted' || s.status === 'expired')
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
@@ -201,15 +214,32 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners }) => {
             </p>
           </div>
 
-          <div className="relative w-full sm:w-72">
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="विद्यार्थी वा रोल नं. खोज्नुहोस्..."
-              className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden focus:ring-2 focus:ring-red-500 font-medium"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {quizzes.length > 1 && (
+              <select
+                value={selectedQuizId}
+                onChange={e => setSelectedQuizId(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white"
+              >
+                <option value="all">सबै क्विजहरू (All Quizzes)</option>
+                {quizzes.map(q => (
+                  <option key={q.id} value={q.id}>
+                    {q.title}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <div className="relative flex-1 sm:w-64">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="विद्यार्थी वा रोल नं. खोज्नुहोस्..."
+                className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden focus:ring-2 focus:ring-red-500 font-medium"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            </div>
           </div>
         </div>
 

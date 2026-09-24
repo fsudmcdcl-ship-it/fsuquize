@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { Student, Quiz, QuizSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
-import { BookOpen, Trophy, Award, CheckCircle, Clock, ArrowRight, User, AlertTriangle } from 'lucide-react';
+import { BookOpen, Trophy, Award, CheckCircle, Clock, ArrowRight, User, AlertTriangle, Dices } from 'lucide-react';
+import { StudentQuestionPickerModal } from '../components/StudentQuestionPickerModal';
+import { dataService } from '../lib/dataService';
 
 interface DashboardPageProps {
   student: Student;
@@ -20,6 +22,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   navigate,
   onLogout,
 }) => {
+  const [showPickerModal, setShowPickerModal] = useState(false);
   const availability = activeQuiz ? getRemainingAvailability(activeQuiz.endAt) : null;
 
   // Calculate student statistics
@@ -238,14 +241,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 <ArrowRight className="w-5 h-5" />
               </button>
             ) : (
-              <button
-                onClick={() => navigate('/todays-quize')}
-                disabled={student.status === 'blocked'}
-                className="px-8 py-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black text-base rounded-2xl shadow-lg shadow-red-600/25 transition flex items-center gap-2 cursor-pointer"
-              >
-                <BookOpen className="w-5 h-5" />
-                <span>क्विज सुरु गर्नुहोस्</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPickerModal(true)}
+                  disabled={student.status === 'blocked'}
+                  className="px-6 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-lg shadow-red-600/25 transition transform hover:-translate-y-0.5 flex items-center gap-2 cursor-pointer"
+                >
+                  <Dices className="w-5 h-5" />
+                  <span>🎲 मेरो लागि प्रश्न छान्नुहोस्</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPickerModal(true)}
+                  disabled={student.status === 'blocked'}
+                  className="px-6 py-4 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-md transition transform hover:-translate-y-0.5 flex items-center gap-2 cursor-pointer"
+                >
+                  <BookOpen className="w-5 h-5" />
+                  <span>क्विज सुरु गर्नुहोस्</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -264,7 +280,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <span className="text-xl">🎲</span>
             <div>
               <b className="text-slate-800 block text-sm">निष्पक्ष ५० प्रश्न बैङ्क</b>
-              ५ वटा शैक्षिक सेटबाट विद्यार्थीपिच्छे १० फरक प्रश्नहरू ¥यान्डम रूपमा छानिन्छन्।
+              ५० प्रश्नहरूको बैङ्कबाट विद्यार्थीपिच्छे १० फरक प्रश्नहरू ¥यान्डम रूपमा छानिन्छन्।
             </div>
           </div>
 
@@ -277,6 +293,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Pick Questions for Me Generator Modal */}
+      {showPickerModal && activeQuiz && (
+        <StudentQuestionPickerModal
+          isOpen={showPickerModal}
+          onClose={() => setShowPickerModal(false)}
+          quiz={activeQuiz}
+          onStartQuiz={(selectedQuestionIds) => {
+            setShowPickerModal(false);
+            dataService.startQuizSession(activeQuiz, student, selectedQuestionIds);
+            navigate(`/quiz/${activeQuiz.id}`);
+          }}
+        />
+      )}
     </div>
   );
 };

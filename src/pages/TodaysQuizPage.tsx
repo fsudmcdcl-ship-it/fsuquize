@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { Student, Quiz, QuizSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
-import { BookOpen, Clock, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
+import { BookOpen, Clock, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Trophy, Sparkles, Dices } from 'lucide-react';
+import { StudentQuestionPickerModal } from '../components/StudentQuestionPickerModal';
+import { dataService } from '../lib/dataService';
 
 interface TodaysQuizPageProps {
   navigate: (path: string) => void;
@@ -16,6 +18,8 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
   activeQuiz,
   studentSession,
 }) => {
+  const [showPickerModal, setShowPickerModal] = useState(false);
+
   // If no quiz is active
   if (!activeQuiz || activeQuiz.status !== 'active') {
     return (
@@ -216,22 +220,49 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
               <div>
                 <h4 className="text-base font-bold text-slate-900">तयार हुनुहुन्छ?</h4>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  'सुरु गर्नुहोस्' थिचेपछि तत्काल १० मिनेटको समयसीमा सुरु हुनेछ।
+                  ५० प्रश्नहरूको बैङ्कबाट तपाईंका लागि १० वटा अनियमित प्रश्नहरू छानिन्छन्।
                 </p>
               </div>
 
-              <button
-                onClick={() => navigate(`/quiz/${activeQuiz.id}`)}
-                disabled={availability.isExpired || student.status === 'blocked'}
-                className="w-full sm:w-auto px-8 py-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black text-base rounded-2xl shadow-lg shadow-red-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <BookOpen className="w-5 h-5" />
-                <span>क्विज सुरु गर्नुहोस्</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowPickerModal(true)}
+                  disabled={availability.isExpired || student.status === 'blocked'}
+                  className="flex-1 sm:flex-initial px-6 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-lg shadow-red-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Dices className="w-5 h-5" />
+                  <span>🎲 मेरो लागि प्रश्न छान्नुहोस्</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPickerModal(true)}
+                  disabled={availability.isExpired || student.status === 'blocked'}
+                  className="flex-1 sm:flex-initial px-6 py-4 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-sm rounded-2xl shadow-md transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <BookOpen className="w-5 h-5" />
+                  <span>क्विज सुरु गर्नुहोस्</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Pick Questions for Me Generator Modal */}
+      {showPickerModal && student && (
+        <StudentQuestionPickerModal
+          isOpen={showPickerModal}
+          onClose={() => setShowPickerModal(false)}
+          quiz={activeQuiz}
+          onStartQuiz={(selectedQuestionIds) => {
+            setShowPickerModal(false);
+            dataService.startQuizSession(activeQuiz, student, selectedQuestionIds);
+            navigate(`/quiz/${activeQuiz.id}`);
+          }}
+        />
+      )}
     </div>
   );
 };

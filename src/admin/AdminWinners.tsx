@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { QuizSession, Quiz, WinnerRecord, WinnerEntry, TieBreak } from '../types/quiz';
 import { toNepaliDigits, formatDurationSeconds, formatNepalDate } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
-import { Trophy, Award, Sparkles, Send, RefreshCw, CheckCircle2, Trash2, Plus, X, Save, Eye } from 'lucide-react';
+import { Trophy, Award, Sparkles, Send, RefreshCw, CheckCircle2, Trash2, Plus, X, Save, Eye, Radio } from 'lucide-react';
 import { SpinningWheel } from '../components/SpinningWheel';
 import { WinnerPoster } from '../components/WinnerPoster';
 import { ParticipantsScorePoster } from './components/ParticipantsScorePoster';
@@ -27,6 +27,8 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
   const [showParticipantsPoster, setShowParticipantsPoster] = useState(false);
   const [publishedNotice, setPublishedNotice] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [isPushingLive, setIsPushingLive] = useState(false);
+  const [pushNotice, setPushNotice] = useState<string | null>(null);
 
   // Manual Add Winner Modal
   const [showManualAddModal, setShowManualAddModal] = useState(false);
@@ -172,6 +174,26 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
     setTimeout(() => setSavedNotice(false), 3000);
   };
 
+  const handlePushWinnersAndParticipants = async () => {
+    setIsPushingLive(true);
+    try {
+      const res = await dataService.pushWinnersAndParticipantsToLive('admin@fsudmc.com');
+      if (res.success) {
+        setPushNotice(res.message);
+        setTimeout(() => setPushNotice(null), 5000);
+      } else {
+        setPushNotice(res.message || 'डाटा पठाउन सकिएन।');
+        setTimeout(() => setPushNotice(null), 5000);
+      }
+      onRefresh();
+    } catch {
+      setPushNotice('फ्रन्टइन्डमा डाटा पठाउँदा समस्या आयो।');
+      setTimeout(() => setPushNotice(null), 5000);
+    } finally {
+      setIsPushingLive(false);
+    }
+  };
+
   const handleSaveManualWinner = (e: React.FormEvent) => {
     e.preventDefault();
     if (!w1Name.trim()) return;
@@ -267,8 +289,25 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
             <Save className="w-4 h-4" />
             <span>विजेता सूची सुरक्षित राख्नुहोस्</span>
           </button>
+
+          <button
+            onClick={handlePushWinnersAndParticipants}
+            disabled={isPushingLive}
+            className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            title="विजेता तथा सम्पूर्ण सहभागीहरूको विवरण फ्रन्टइन्ड (/winner-list) मा प्रत्यक्ष लाइभ पठाउनुहोस्"
+          >
+            <Radio className={`w-4 h-4 ${isPushingLive ? 'animate-pulse text-blue-200' : ''}`} />
+            <span>{isPushingLive ? 'लाइभ पठाउँदै...' : '🚀 फ्रन्टइन्डमा लाइभ पठाउनुहोस्'}</span>
+          </button>
         </div>
       </div>
+
+      {pushNotice && (
+        <div className="p-4 rounded-2xl bg-blue-50 border border-blue-300 text-blue-900 text-xs font-bold flex items-center gap-2 shadow-xs">
+          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+          <span>{pushNotice}</span>
+        </div>
+      )}
 
       {savedNotice && (
         <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-2">

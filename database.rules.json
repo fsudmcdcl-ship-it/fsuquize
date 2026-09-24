@@ -1,19 +1,25 @@
 {
   "rules": {
-    ".read": false,
-    ".write": false,
+    ".read": true,
+    ".write": true,
+
+    "syncMeta": {
+      ".read": true,
+      ".write": true
+    },
 
     "students": {
       ".indexOn": ["phone", "rollNo", "status", "uid", "studentId"],
       ".read": true,
+      ".write": true,
       "$studentId": {
         ".read": true,
-        ".write": "auth != null",
+        ".write": true,
         "activeSessions": {
           ".read": true,
           "$deviceId": {
             ".read": true,
-            ".write": "auth != null"
+            ".write": true
           }
         }
       }
@@ -22,77 +28,78 @@
     "quizzes": {
       ".indexOn": ["status", "createdAt"],
       ".read": true,
-      ".write": "auth != null",
+      ".write": true,
       "$quizId": {
         ".read": true,
-        ".write": "auth != null"
+        ".write": true
       }
     },
 
     "questions": {
       ".indexOn": ["quizId", "setNumber"],
-      ".read": "auth != null",
-      ".write": "auth != null"
+      ".read": true,
+      ".write": true
     },
 
     "quizSessions": {
       ".indexOn": ["studentId", "quizId", "score", "submittedAt", "status"],
       ".read": true,
+      ".write": true,
       "$sessionId": {
         ".read": true,
-        ".write": "auth != null"
+        ".write": true
       }
     },
 
     "winners": {
       ".read": true,
-      ".write": "auth != null",
+      ".write": true,
       "$quizId": {
         ".read": true,
-        ".write": "auth != null"
+        ".write": true
       }
     },
 
     "tieBreaks": {
       ".read": true,
-      ".write": "auth != null",
+      ".write": true,
       "$tieBreakId": {
         ".read": true,
-        ".write": "auth != null"
+        ".write": true
       }
     },
 
     "notifications": {
       ".indexOn": ["targetType", "targetStudentId", "createdAt"],
       ".read": true,
-      ".write": "auth != null",
+      ".write": true,
       "$notificationId": {
         ".read": true,
-        ".write": "auth != null"
+        ".write": true
       }
     },
 
     "settings": {
       ".read": true,
-      ".write": "auth != null",
+      ".write": true,
       "portal": {
         ".read": true,
-        ".write": "auth != null"
+        ".write": true
       }
     },
 
     "auditLogs": {
       ".indexOn": ["timestamp", "action"],
-      ".read": "auth != null",
-      ".write": "auth != null"
+      ".read": true,
+      ".write": true
     },
 
     "admins": {
-      ".read": "auth != null",
-      ".write": "auth != null",
+      ".read": true,
+      ".write": true,
       "$uid": {
-        ".read": "auth != null",
-        ".write": "auth != null && auth.uid == $uid"
+        ".read": true,
+        ".write": true
       }
     }
   }

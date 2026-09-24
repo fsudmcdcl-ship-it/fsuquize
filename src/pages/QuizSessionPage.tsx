@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { dataService } from '../lib/dataService';
 import type { Student, Quiz, Question, QuizSession, QuestionOption } from '../types/quiz';
 import { toNepaliDigits, formatTimer, formatDurationSeconds } from '../lib/nepaliUtils';
-import { Clock, AlertTriangle, CheckCircle, ArrowLeft, ArrowRight, Send, Check, X, ShieldAlert, Award, RefreshCw } from 'lucide-react';
+import { Clock, AlertTriangle, CheckCircle, ArrowLeft, ArrowRight, Send, Check, X, ShieldAlert, Award, RefreshCw, Dices, Sparkles, Shuffle, CheckCircle2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 interface QuizSessionPageProps {
@@ -28,23 +28,61 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
   const [autoExpiredNotice, setAutoExpiredNotice] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Initialize or resume session
+  // States for pre-quiz Pick Questions for Me generator
+  const [isPickingQuestions, setIsPickingQuestions] = useState(false);
+  const [hasPickedQuestions, setHasPickedQuestions] = useState(false);
+  const [previewQuestions, setPreviewQuestions] = useState<Question[]>([]);
+  const [generationCount, setGenerationCount] = useState(0);
+
+  // Check if session already exists for this student
   useEffect(() => {
     if (!activeQuiz) return;
 
-    // Check if session already exists or create new
-    const activeOrNew = dataService.startQuizSession(activeQuiz, student);
-    setSession(activeOrNew);
+    const existing = dataService.getStudentSession(quizId, student.id);
+    if (existing) {
+      setSession(existing);
 
-    // Retrieve questions matching the session's selected question IDs
+      // Retrieve questions matching the session's selected question IDs
+      const allBank = dataService.getQuestions(quizId);
+      const bankMap = new Map(allBank.map(q => [q.id, q]));
+      const matched = existing.selectedQuestionIds
+        .map(id => bankMap.get(id))
+        .filter((q): q is Question => Boolean(q));
+
+      setQuestions(matched);
+    }
+  }, [activeQuiz, quizId, student]);
+
+  // Handle Pick Questions for Me action
+  const handleGenerateQuestions = () => {
+    setIsPickingQuestions(true);
+    setTimeout(() => {
+      const generated = dataService.pickRandom10From50(quizId);
+      setPreviewQuestions(generated);
+      setIsPickingQuestions(false);
+      setHasPickedQuestions(true);
+      setGenerationCount(prev => prev + 1);
+    }, 800);
+  };
+
+  // Start the quiz with the picked questions (or random 10 if none picked yet)
+  const handleStartSession = () => {
+    if (!activeQuiz) return;
+    const qIds = previewQuestions.length === 10
+      ? previewQuestions.map(q => q.id)
+      : undefined;
+
+    const newSession = dataService.startQuizSession(activeQuiz, student, qIds);
+    setSession(newSession);
+
     const allBank = dataService.getQuestions(quizId);
     const bankMap = new Map(allBank.map(q => [q.id, q]));
-    const matched = activeOrNew.selectedQuestionIds
+    const matched = newSession.selectedQuestionIds
       .map(id => bankMap.get(id))
       .filter((q): q is Question => Boolean(q));
-
     setQuestions(matched);
-  }, [activeQuiz, quizId, student]);
+    onSessionUpdated?.();
+  };
 
   // Timer countdown management
   useEffect(() => {
@@ -118,7 +156,201 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
     }
   };
 
-  if (!session || questions.length === 0) {
+  if (!session) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+        {/* Back navigation */}
+        <button
+          onClick={() => navigate('/todays-quize')}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>क्विज जानकारीमा फर्कनुहोस्</span>
+        </button>
+
+        {/* Main Preparation Card */}
+        <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200/80 shadow-md space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 text-white flex items-center justify-center shadow-md shadow-red-500/20">
+                <Dices className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
+                  क्विज सुरु पूर्व तयारी
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">
+                  मेरो लागि प्रश्न छान्नुहोस्
+                </h1>
+              </div>
+            </div>
+
+            <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-amber-600" />
+              <span>१० मिनेटको समयसीमा</span>
+            </span>
+          </div>
+
+          {/* Student Info Bar */}
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/70 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div>
+              <span className="text-slate-400 block text-[11px]">सहभागी विद्यार्थी</span>
+              <span className="font-bold text-slate-800 text-sm">{student.name}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[11px]">कक्षा / सेमेस्टर</span>
+              <span className="font-bold text-slate-800">{student.class} ({student.semester} सेमे.)</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[11px]">रोल नं.</span>
+              <span className="font-bold text-slate-800">{toNepaliDigits(student.rollNo)}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[11px]">प्रश्न बैङ्क</span>
+              <span className="font-bold text-red-600">५० प्रश्न (५ सेटहरू)</span>
+            </div>
+          </div>
+
+          {/* Core Mechanism Explanation */}
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 sm:p-6 rounded-3xl relative overflow-hidden">
+            <div className="absolute right-0 top-0 w-40 h-40 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="flex items-start gap-3.5">
+              <Sparkles className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-base font-black text-white">
+                  विद्यार्थीपिच्छे १० वटा अनियमित प्रश्नहरू (Randomized Selection)
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
+                  कुनै निश्चित सेट (Set 1, 2, 3...) मा मात्र सीमित नभई, ५० वटा सम्पूर्ण प्रश्नहरूको बैङ्कबाट तपाईंका लागि <b>१० वटा फरक प्रश्नहरू</b> अनियमित रूपमा छानिन्छन्।
+                  तलको बटन थिचेर आफ्ना लागि १० प्रश्नहरू तयार गर्नुहोस्।
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Generator Area */}
+          {!hasPickedQuestions && !isPickingQuestions && (
+            <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl p-8 text-center space-y-4">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                <Shuffle className="w-8 h-8 text-red-600" />
+              </div>
+              <div>
+                <h4 className="text-base font-black text-slate-900">
+                  तपाईंका लागि १० प्रश्नहरू तयार गर्न तल थिच्नुहोस्
+                </h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                  'मेरो लागि प्रश्न छान्नुहोस्' बटन थिचेपछि ५० प्रश्नहरूको बैङ्कबाट तपाईंका लागि निष्पक्ष १० अनियमित प्रश्नहरू चयन हुनेछन्।
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGenerateQuestions}
+                className="px-8 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-red-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2.5 mx-auto cursor-pointer"
+              >
+                <Dices className="w-5 h-5" />
+                <span>🎲 मेरो लागि १० प्रश्नहरू छान्नुहोस् (Pick Questions for Me)</span>
+              </button>
+            </div>
+          )}
+
+          {/* Generating animation */}
+          {isPickingQuestions && (
+            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-10 text-center space-y-4">
+              <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              <div>
+                <h4 className="text-base font-black text-slate-900">
+                  ५० प्रश्नहरूबाट १० वटा अनियमित प्रश्नहरू छानिँदैछ...
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 font-mono">
+                  [सेट १ देखि ५ सम्मका प्रश्नहरूको निष्पक्ष ¥यान्डम मिश्रण प्रगतिमा...]
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Picked Questions Preview & Start Button */}
+          {hasPickedQuestions && !isPickingQuestions && previewQuestions.length === 10 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl">
+                <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>१० वटा प्रश्न सफलतापूर्वक छानिइसक्यो! (प्रयास #{toNepaliDigits(generationCount)})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGenerateQuestions}
+                  className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>फेरि छान्नुहोस्</span>
+                </button>
+              </div>
+
+              {/* Question list */}
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {previewQuestions.map((q, idx) => (
+                  <div
+                    key={q.id}
+                    className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3 text-left hover:bg-slate-100/70 transition"
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="w-7 h-7 rounded-xl bg-white border border-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                        {toNepaliDigits(idx + 1)}
+                      </span>
+                      <p className="text-xs font-semibold text-slate-800 truncate">
+                        {q.question}
+                      </p>
+                    </div>
+
+                    <span className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200">
+                      सेट {toNepaliDigits(q.setNumber)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Start Quiz Action Card */}
+              <div className="bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
+                <div>
+                  <h4 className="text-base font-black text-slate-900 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-red-600" />
+                    <span>क्विज सुरु गर्न तयार हुनुहुन्छ?</span>
+                  </h4>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    'सुरु गर्नुहोस्' थिचेपछि तत्काल १० मिनेट (६०० सेकेन्ड) को काउन्टडाउन सुरु हुनेछ।
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={handleGenerateQuestions}
+                    className="px-4 py-3 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-2xl transition cursor-pointer flex items-center gap-1.5"
+                    title="पुनः नयाँ १० प्रश्न छान्नुहोस्"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>फेरि छान्नुहोस्</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleStartSession}
+                    className="flex-1 sm:flex-initial px-8 py-3.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-red-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <span>🚀 क्विज सुरु गर्नुहोस्</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (questions.length === 0) {
     return (
       <div className="max-w-md mx-auto py-20 text-center space-y-4">
         <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
