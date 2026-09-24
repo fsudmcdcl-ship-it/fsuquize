@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Quiz, Question } from '../types/quiz';
 import { dataService } from '../lib/dataService';
 import { toNepaliDigits } from '../lib/nepaliUtils';
-import { Dices, Sparkles, RefreshCw, CheckCircle2, ArrowRight, X, Clock, HelpCircle, Shuffle } from 'lucide-react';
+import { Dices, Sparkles, CheckCircle2, ArrowRight, X, Clock, Shuffle, Lock } from 'lucide-react';
 
 interface StudentQuestionPickerModalProps {
   isOpen: boolean;
   onClose: () => void;
   quiz: Quiz;
+  studentId?: string;
   onStartQuiz: (selectedQuestionIds: string[]) => void;
 }
 
@@ -15,32 +16,57 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
   isOpen,
   onClose,
   quiz,
+  studentId,
   onStartQuiz,
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [pickedQuestions, setPickedQuestions] = useState<Question[]>([]);
   const [hasPicked, setHasPicked] = useState(false);
-  const [generationCount, setGenerationCount] = useState(0);
+
+  // Check if questions were already picked/locked for this student & quiz
+  useEffect(() => {
+    if (!quiz || !studentId) return;
+    const existingIds = dataService.getPickedQuestionsForStudent(quiz.id, studentId);
+    if (existingIds && existingIds.length === 10) {
+      const all = dataService.getQuestions(quiz.id);
+      const bankMap = new Map(all.map(q => [q.id, q]));
+      const matched = existingIds.map(id => bankMap.get(id)).filter((q): q is Question => Boolean(q));
+      if (matched.length === 10) {
+        setPickedQuestions(matched);
+        setHasPicked(true);
+      }
+    }
+  }, [quiz, studentId]);
 
   if (!isOpen) return null;
 
   const handlePickRandomQuestions = () => {
+    // Strictly prevent picking again if already picked once!
+    if (hasPicked) return;
+
     setIsGenerating(true);
     setPickedQuestions([]);
 
-    // Fun animated effect to demonstrate drawing 10 questions from the 50-question bank
+    // Animated effect to draw 10 questions from the 50-question bank and lock them
     setTimeout(() => {
-      const generated = dataService.pickRandom10From50(quiz.id);
+      let generated: Question[] = [];
+      if (studentId) {
+        generated = dataService.pickAndLockQuestionsForStudent(quiz.id, studentId);
+      } else {
+        generated = dataService.pickRandom10From50(quiz.id);
+      }
       setPickedQuestions(generated);
       setIsGenerating(false);
       setHasPicked(true);
-      setGenerationCount(prev => prev + 1);
-    }, 900);
+    }, 850);
   };
 
   const handleConfirmAndStart = () => {
     if (pickedQuestions.length !== 10) return;
     const ids = pickedQuestions.map(q => q.id);
+    if (studentId) {
+      dataService.lockPickedQuestionsForStudent(quiz.id, studentId, ids);
+    }
     onStartQuiz(ids);
   };
 
@@ -85,10 +111,10 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
               <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
               <div>
                 <h4 className="text-sm font-black text-white">
-                  विद्यार्थीपिच्छे १० फरक अनियमित प्रश्नहरू
+                  विद्यार्थीपिच्छे १० फरक अनियमित प्रश्नहरू (एकपटक मात्र छान्ने अवसर)
                 </h4>
                 <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                  कुनै निश्चित सेट (Set 1 वा Set 2 आदि) मा सीमित नभई, ५० वटा सम्पूर्ण प्रश्नहरूको बैङ्कबाट तपाईंका लागि <b>१० वटा फरक प्रश्नहरू</b> अनियमित रूपमा छानिन्छन्।
+                  ५० वटा सम्पूर्ण प्रश्नहरूको बैङ्कबाट तपाईंका लागि <b>१० वटा फरक प्रश्नहरू</b> अनियमित रूपमा छानिन्छन्। <b>एकपटक प्रश्न छानिसकेपछि फेरि बदल्न वा अर्को पटक छान्ने मौका पाइने छैन।</b>
                 </p>
               </div>
             </div>
@@ -102,10 +128,10 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
               </div>
               <div>
                 <h4 className="text-base font-black text-slate-900">
-                  तपाईंको लागि १० प्रश्नहरू तयार छैनन्
+                  तपाईंको लागि १० प्रश्नहरू चयन गर्न बाँकी छ
                 </h4>
                 <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                  तलको बटन थिचेर ५० प्रश्नहरूको बैङ्कबाट आफ्ना लागि विशेष १० वटा अनियमित प्रश्नहरू चयन गर्नुहोस्।
+                  तलको बटन थिचेर ५० प्रश्नहरूको बैङ्कबाट आफ्ना लागि १० वटा अनियमित प्रश्नहरू चयन गर्नुहोस्। (नोट: छनोट एकपटक मात्र हुनेछ)
                 </p>
               </div>
 
@@ -115,7 +141,7 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
                 className="px-8 py-3.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-red-600/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2.5 mx-auto cursor-pointer"
               >
                 <Dices className="w-5 h-5" />
-                <span>🎲 मेरो लागि प्रश्न छान्नुहोस् (Generate Questions for Me)</span>
+                <span>🎲 मेरो लागि प्रश्न छान्नुहोस् (Pick Questions for Me)</span>
               </button>
             </div>
           )}
@@ -126,10 +152,10 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
               <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto" />
               <div>
                 <h4 className="text-base font-black text-slate-900">
-                  ५० प्रश्नहरूबाट १० वटा अनियमित प्रश्नहरू संकलन हुँदैछ...
+                  ५० प्रश्नहरूबाट १० वटा अनियमित प्रश्नहरू संकलन गरी लक गरिँदैछ...
                 </h4>
                 <p className="text-xs text-slate-500 mt-1 font-mono">
-                  [अनियमित छनोट प्रगतिमा... Set 1-5 को मिश्रण]
+                  [अनियमित छनोट प्रगतिमा... एकपटकको लागि सुरक्षित गरिँदै]
                 </p>
               </div>
             </div>
@@ -141,16 +167,12 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
               <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl">
                 <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>१० वटा प्रश्न सफलतापूर्वक छानिइसक्यो! (प्रयास #{toNepaliDigits(generationCount)})</span>
+                  <span>१० वटा प्रश्न सफलतापूर्वक छानिइसक्यो र सुरक्षित गरियो!</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handlePickRandomQuestions}
-                  className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>फेरि छान्नुहोस्</span>
-                </button>
+                <span className="text-[11px] font-bold text-amber-800 bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-700" />
+                  <span>छनोट सुरक्षित (No Re-pick)</span>
+                </span>
               </div>
 
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -175,10 +197,10 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
                 ))}
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2">
+                <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <span>
-                  <b>सूचना:</b> 'क्विज सुरु गर्नुहोस्' थिचेपछि तत्काल १० मिनेटको समयसीमा सुरु हुनेछ।
+                  <b>नियम:</b> तपाईंले आफ्ना लागि प्रश्न छानिसक्नुभएको छ। निष्पक्षताका लागि पुनः अर्को प्रश्न छान्ने अवसर दिइँदैन। 'क्विज सुरु गर्नुहोस्' थिचेपछि १० मिनेटको समयसीमा सुरु हुनेछ।
                 </span>
               </div>
             </div>
@@ -196,18 +218,6 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
           </button>
 
           <div className="flex items-center gap-2">
-            {hasPicked && (
-              <button
-                type="button"
-                onClick={handlePickRandomQuestions}
-                disabled={isGenerating}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-                <span>पुनः छान्नुहोस्</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={hasPicked ? handleConfirmAndStart : handlePickRandomQuestions}

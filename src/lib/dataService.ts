@@ -125,6 +125,7 @@ const STORAGE_KEYS = {
   AUDIT_LOGS: 'fsudmc_audit_logs_v2',
   SETTINGS: 'fsudmc_settings_v2',
   NOTIFICATIONS: 'fsudmc_notifications_v2',
+  LOCKED_PICKED_QUESTIONS: 'fsudmc_locked_picked_questions_v2',
   DRAFT_STATUS: 'fsudmc_draft_pending_v2',
   LAST_SYNC: 'fsudmc_last_sync_v2',
 };
@@ -2284,6 +2285,100 @@ class DataService {
   }
 
   /**
+   * Retrieves the locked question IDs for a specific student and quiz if they have already picked questions once.
+   * If a session already exists for this student, returns those question IDs.
+   */
+  getPickedQuestionsForStudent(quizId: string, studentId: string): string[] | null {
+    if (!quizId || !studentId) return null;
+
+    // 1. Check existing quiz session first
+    const session = this.getStudentSession(quizId, studentId);
+    if (session && session.selectedQuestionIds && session.selectedQuestionIds.length > 0) {
+      return session.selectedQuestionIds;
+    }
+
+    // 2. Check local locked storage
+    const lockedMap = this.getStorage<Record<string, { questionIds: string[]; pickedAt: string }>>(
+      STORAGE_KEYS.LOCKED_PICKED_QUESTIONS,
+      {}
+    );
+    const key = `${quizId}_${studentId}`;
+    if (lockedMap[key] && Array.isArray(lockedMap[key].questionIds) && lockedMap[key].questionIds.length > 0) {
+      return lockedMap[key].questionIds;
+    }
+
+    return null;
+  }
+
+  /**
+   * Locks the 10 chosen questions for the student for this quiz.
+   * Once locked, they cannot pick again.
+   */
+  lockPickedQuestionsForStudent(quizId: string, studentId: string, questionIds: string[]): string[] {
+    if (!quizId || !studentId || !Array.isArray(questionIds) || questionIds.length === 0) {
+      return questionIds;
+    }
+
+    const existing = this.getPickedQuestionsForStudent(quizId, studentId);
+    if (existing && existing.length === 10) {
+      return existing; // Already locked! Never overwrite!
+    }
+
+    const lockedMap = this.getStorage<Record<string, { questionIds: string[]; pickedAt: string }>>(
+      STORAGE_KEYS.LOCKED_PICKED_QUESTIONS,
+      {}
+    );
+    const key = `${quizId}_${studentId}`;
+    const entry = {
+      questionIds,
+      pickedAt: new Date().toISOString(),
+    };
+    lockedMap[key] = entry;
+    this.setStorage(STORAGE_KEYS.LOCKED_PICKED_QUESTIONS, lockedMap);
+
+    // Persist to Firestore asynchronously
+    setDoc(doc(firestoreDb, 'studentPickedQuestions', key), {
+      quizId,
+      studentId,
+      questionIds,
+      pickedAt: entry.pickedAt,
+    }).catch(() => {});
+
+    return questionIds;
+  }
+
+  /**
+   * Pick 10 random questions from the 50-question bank AND permanently lock them for the student.
+   * If already picked, returns the exact same previously picked questions.
+   * This guarantees that when a user picks questions once, they are NOT given another chance to pick again!
+   */
+  pickAndLockQuestionsForStudent(quizId: string, studentId: string): Question[] {
+    const all = this.getQuestions(quizId);
+    if (!all || all.length === 0) return [];
+    const bankMap = new Map(all.map(q => [q.id, q]));
+
+    const existingIds = this.getPickedQuestionsForStudent(quizId, studentId);
+    if (existingIds && existingIds.length > 0) {
+      const matched = existingIds.map(id => bankMap.get(id)).filter((q): q is Question => Boolean(q));
+      if (matched.length === existingIds.length && matched.length === 10) {
+        return matched;
+      }
+    }
+
+    // Shuffle and pick 10 fresh questions
+    const shuffled = [...all];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const chosen = shuffled.slice(0, 10);
+    const chosenIds = chosen.map(q => q.id);
+
+    this.lockPickedQuestionsForStudent(quizId, studentId, chosenIds);
+    return chosen;
+  }
+
+  /**
    * Randomly selects exactly 10 questions across the question sets in a non-sequential, shuffled manner.
    */
   pick10RandomQuestions(quizId?: string): Question[] {
@@ -2370,12 +2465,15 @@ class DataService {
     const existing = this.getStudentSession(quiz.id, student.id);
     if (existing) return existing;
 
-    // Use custom-picked 10 questions from user's "Pick questions for me" action, or pick 10 random from 50
+    // Ensure 10 questions are locked in permanently for this student (no second pick allowed)
     let selectedQuestionIds: string[] = [];
+    const lockedIds = this.getPickedQuestionsForStudent(quiz.id, student.id);
     if (customQuestionIds && customQuestionIds.length === 10) {
-      selectedQuestionIds = customQuestionIds;
+      selectedQuestionIds = this.lockPickedQuestionsForStudent(quiz.id, student.id, customQuestionIds);
+    } else if (lockedIds && lockedIds.length === 10) {
+      selectedQuestionIds = lockedIds;
     } else {
-      const pickedQuestions = this.pickRandom10From50(quiz.id);
+      const pickedQuestions = this.pickAndLockQuestionsForStudent(quiz.id, student.id);
       selectedQuestionIds = pickedQuestions.map(q => q.id);
     }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { dataService } from '../lib/dataService';
 import type { Student, Quiz, Question, QuizSession, QuestionOption } from '../types/quiz';
 import { toNepaliDigits, formatTimer, formatDurationSeconds } from '../lib/nepaliUtils';
-import { Clock, AlertTriangle, CheckCircle, ArrowLeft, ArrowRight, Send, Check, X, ShieldAlert, Award, RefreshCw, Dices, Sparkles, Shuffle, CheckCircle2 } from 'lucide-react';
+import { Clock, AlertTriangle, CheckCircle, ArrowLeft, ArrowRight, Send, Check, X, ShieldAlert, Award, Dices, Sparkles, Shuffle, CheckCircle2, Lock } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 interface QuizSessionPageProps {
@@ -32,9 +32,8 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
   const [isPickingQuestions, setIsPickingQuestions] = useState(false);
   const [hasPickedQuestions, setHasPickedQuestions] = useState(false);
   const [previewQuestions, setPreviewQuestions] = useState<Question[]>([]);
-  const [generationCount, setGenerationCount] = useState(0);
 
-  // Check if session already exists for this student
+  // Check if session or locked picked questions already exist for this student
   useEffect(() => {
     if (!activeQuiz) return;
 
@@ -50,18 +49,32 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
         .filter((q): q is Question => Boolean(q));
 
       setQuestions(matched);
+    } else {
+      // Check if student has already locked questions before session was officially started
+      const lockedIds = dataService.getPickedQuestionsForStudent(quizId, student.id);
+      if (lockedIds && lockedIds.length === 10) {
+        const allBank = dataService.getQuestions(quizId);
+        const bankMap = new Map(allBank.map(q => [q.id, q]));
+        const matched = lockedIds
+          .map(id => bankMap.get(id))
+          .filter((q): q is Question => Boolean(q));
+        if (matched.length === 10) {
+          setPreviewQuestions(matched);
+          setHasPickedQuestions(true);
+        }
+      }
     }
   }, [activeQuiz, quizId, student]);
 
-  // Handle Pick Questions for Me action
+  // Handle Pick Questions for Me action (Locks them once and prevents picking again)
   const handleGenerateQuestions = () => {
+    if (hasPickedQuestions) return; // Disallow picking again!
     setIsPickingQuestions(true);
     setTimeout(() => {
-      const generated = dataService.pickRandom10From50(quizId);
+      const generated = dataService.pickAndLockQuestionsForStudent(quizId, student.id);
       setPreviewQuestions(generated);
       setIsPickingQuestions(false);
       setHasPickedQuestions(true);
-      setGenerationCount(prev => prev + 1);
     }, 800);
   };
 
@@ -275,16 +288,12 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
               <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl">
                 <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>१० वटा प्रश्न सफलतापूर्वक छानिइसक्यो! (प्रयास #{toNepaliDigits(generationCount)})</span>
+                  <span>१० वटा प्रश्न सफलतापूर्वक छानिइसक्यो र सुरक्षित गरियो!</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleGenerateQuestions}
-                  className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>फेरि छान्नुहोस्</span>
-                </button>
+                <span className="text-[11px] font-bold text-amber-800 bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-700" />
+                  <span>छनोट सुरक्षित (एकपटक मात्र अवसर)</span>
+                </span>
               </div>
 
               {/* Question list */}
@@ -318,21 +327,11 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
                     <span>क्विज सुरु गर्न तयार हुनुहुन्छ?</span>
                   </h4>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    'सुरु गर्नुहोस्' थिचेपछि तत्काल १० मिनेट (६०० सेकेन्ड) को काउन्टडाउन सुरु हुनेछ।
+                    तपाईंका लागि यी १० प्रश्नहरू निश्चित भइसकेका छन् (फेरि परिवर्तन गर्न पाइने छैन)। 'सुरु गर्नुहोस्' थिचेपछि तत्काल १० मिनेट (६०० सेकेन्ड) को काउन्टडाउन सुरु हुनेछ।
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2.5 w-full sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={handleGenerateQuestions}
-                    className="px-4 py-3 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-2xl transition cursor-pointer flex items-center gap-1.5"
-                    title="पुनः नयाँ १० प्रश्न छान्नुहोस्"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>फेरि छान्नुहोस्</span>
-                  </button>
-
                   <button
                     type="button"
                     onClick={handleStartSession}

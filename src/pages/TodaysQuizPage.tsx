@@ -256,6 +256,7 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
           isOpen={showPickerModal}
           onClose={() => setShowPickerModal(false)}
           quiz={activeQuiz}
+          studentId={student.id}
           onStartQuiz={(selectedQuestionIds) => {
             setShowPickerModal(false);
             dataService.startQuizSession(activeQuiz, student, selectedQuestionIds);

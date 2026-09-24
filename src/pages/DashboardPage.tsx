@@ -300,6 +300,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           isOpen={showPickerModal}
           onClose={() => setShowPickerModal(false)}
           quiz={activeQuiz}
+          studentId={student.id}
           onStartQuiz={(selectedQuestionIds) => {
             setShowPickerModal(false);
             dataService.startQuizSession(activeQuiz, student, selectedQuestionIds);
