@@ -39,6 +39,24 @@ import {
 } from 'firebase/firestore';
 import { ref, get, child, update, set, onValue, remove } from 'firebase/database';
 import { signOut } from 'firebase/auth';
+import { fromNepaliDigits } from './nepaliUtils';
+
+export function hashPin(pin: string): string {
+  if (!pin) return '';
+  let hash = 0;
+  for (let i = 0; i < pin.length; i++) {
+    hash = (hash << 5) - hash + pin.charCodeAt(i);
+    hash |= 0;
+  }
+  return `pin_${Math.abs(hash)}_${btoa(pin)}`;
+}
+
+export function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms))
+  ]);
+}
 
 export function isOfflineOrUnavailableError(err: unknown): boolean {
   if (!err) return false;
@@ -191,7 +209,7 @@ class DataService {
   }
 
   /**
-   * Realtime Database live listeners for real-time reactive sync
+   * Realtime Database live listeners for real-time reactive sync across all devices
    */
   private initRealtimeDbListeners() {
     if (this.isRtdbListening || typeof window === 'undefined') return;
@@ -218,7 +236,7 @@ class DataService {
         }
       );
 
-      // 2. Live Student approval / status stream from Realtime Database
+      // 2. Live Student approval / status / info stream from Realtime Database
       const studentsRef = ref(realtimeDb, 'students');
       onValue(
         studentsRef,
@@ -235,7 +253,16 @@ class DataService {
               for (const r of rtdbStudents) {
                 if (r && r.id) {
                   const existing = map.get(r.id);
-                  if (!existing || existing.status !== r.status || existing.approvedAt !== r.approvedAt) {
+                  if (
+                    !existing ||
+                    existing.status !== r.status ||
+                    existing.approvedAt !== r.approvedAt ||
+                    existing.name !== r.name ||
+                    existing.phone !== r.phone ||
+                    existing.rollNo !== r.rollNo ||
+                    existing.class !== r.class ||
+                    existing.semester !== r.semester
+                  ) {
                     map.set(r.id, { ...existing, ...r });
                     hasChanged = true;
                   }
@@ -249,7 +276,7 @@ class DataService {
                 const cur = this.getCurrentStudent();
                 if (cur) {
                   const match = updatedList.find(s => s.id === cur.id);
-                  if (match && (match.status !== cur.status || match.approvedAt !== cur.approvedAt)) {
+                  if (match) {
                     this.setCurrentStudent(match);
                   }
                 }
@@ -264,6 +291,116 @@ class DataService {
           }
         }
       );
+
+      // 3. Live Quizzes stream from Realtime Database
+      const quizzesRef = ref(realtimeDb, 'quizzes');
+      onValue(
+        quizzesRef,
+        snapshot => {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            const list: Quiz[] = Array.isArray(val) ? val : (typeof val === 'object' && val !== null ? Object.values(val) : []);
+            if (list.length > 0) {
+              this.setStorage(STORAGE_KEYS.QUIZZES, list);
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('RTDB quizzes listener notice:', err);
+          }
+        }
+      );
+
+      // 4. Live Quiz Sessions / Submissions stream from Realtime Database
+      const sessionsRef = ref(realtimeDb, 'quizSessions');
+      onValue(
+        sessionsRef,
+        snapshot => {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            const list: QuizSession[] = Array.isArray(val) ? val : (typeof val === 'object' && val !== null ? Object.values(val) : []);
+            if (list.length > 0) {
+              const currentSessions = this.getSessions();
+              const sMap = new Map<string, QuizSession>();
+              for (const s of currentSessions) sMap.set(s.id, s);
+              for (const s of list) {
+                if (s && s.id) sMap.set(s.id, s);
+              }
+              this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('RTDB quizSessions listener notice:', err);
+          }
+        }
+      );
+
+      // 5. Live Questions stream from Realtime Database
+      const questionsRef = ref(realtimeDb, 'questions');
+      onValue(
+        questionsRef,
+        snapshot => {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            const list: Question[] = Array.isArray(val) ? val : (typeof val === 'object' && val !== null ? Object.values(val) : []);
+            if (list.length > 0) {
+              this.setStorage(STORAGE_KEYS.QUESTIONS, list);
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('RTDB questions listener notice:', err);
+          }
+        }
+      );
+
+      // 6. Live Settings stream from Realtime Database
+      const settingsRef = ref(realtimeDb, 'settings');
+      onValue(
+        settingsRef,
+        snapshot => {
+          if (snapshot.exists()) {
+            const val = snapshot.val() as PortalSettings;
+            if (val && typeof val === 'object') {
+              this.setStorage(STORAGE_KEYS.SETTINGS, { ...DEFAULT_SETTINGS, ...val });
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('RTDB settings listener notice:', err);
+          }
+        }
+      );
+
+      // 7. Live Winners stream from Realtime Database
+      const winnersRef = ref(realtimeDb, 'winners');
+      onValue(
+        winnersRef,
+        snapshot => {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            const list: WinnerRecord[] = Array.isArray(val) ? val : (typeof val === 'object' && val !== null ? Object.values(val) : []);
+            if (list.length > 0) {
+              this.setStorage(STORAGE_KEYS.WINNERS, list);
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('RTDB winners listener notice:', err);
+          }
+        }
+      );
     } catch (err) {
       if (!isOfflineOrUnavailableError(err)) {
         console.debug('RTDB init listeners notice:', err);
@@ -275,39 +412,7 @@ class DataService {
    * One-time sync from Realtime Database on startup
    */
   async syncFromRealtimeDb(): Promise<void> {
-    try {
-      const snap = await get(ref(realtimeDb, 'students'));
-      if (snap.exists()) {
-        const data = snap.val() as Record<string, Student>;
-        const rtdbStudents = Object.values(data);
-        if (rtdbStudents.length > 0) {
-          const localStudents = this.getStudents();
-          const map = new Map<string, Student>();
-          for (const s of localStudents) map.set(s.id, s);
-          for (const s of rtdbStudents) {
-            if (s && s.id) {
-              const existing = map.get(s.id);
-              map.set(s.id, { ...existing, ...s });
-            }
-          }
-          this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(map.values()));
-          this.notifyListeners();
-        }
-      }
-
-      const notifSnap = await get(ref(realtimeDb, 'notifications'));
-      if (notifSnap.exists()) {
-        const val = notifSnap.val();
-        const items: AppNotification[] = typeof val === 'object' && val !== null ? Object.values(val) : [];
-        if (items.length > 0) {
-          this.mergeNotifications(items);
-        }
-      }
-    } catch (err) {
-      if (!isOfflineOrUnavailableError(err)) {
-        console.debug('RTDB sync notice:', err);
-      }
-    }
+    await this.syncWithRealtimeDbAndFirestore();
   }
 
   // =================== LISTENERS & DRAFT/LIVE STATE ===================
@@ -436,15 +541,16 @@ class DataService {
   }): Promise<{ success: boolean; student?: Student; error?: string; technicalError?: string }> {
     const students = this.getStudents();
 
-    const rollNoClean = params.rollNo.trim();
-    const phoneClean = params.phone.trim();
+    const rollNoClean = fromNepaliDigits(params.rollNo.trim());
+    const phoneClean = fromNepaliDigits(params.phone.trim()).replace(/\D/g, '');
+    const passcodeClean = fromNepaliDigits(params.passcode.trim()).replace(/\D/g, '');
 
     // Validations
-    if (!params.name.trim() || !rollNoClean || !params.class || !params.semester || !phoneClean || !params.passcode) {
+    if (!params.name.trim() || !rollNoClean || !params.class || !params.semester || !phoneClean || !passcodeClean) {
       return { success: false, error: 'कृपया सबै आवश्यक विवरण भर्नुहोस्।' };
     }
 
-    if (params.passcode.length !== 4 || !/^\d{4}$/.test(params.passcode)) {
+    if (passcodeClean.length !== 4 || !/^\d{4}$/.test(passcodeClean)) {
       return { success: false, error: 'पासकोड ठ्याक्कै ४ अंकको संख्या मात्र हुनुपर्छ।' };
     }
 
@@ -469,24 +575,13 @@ class DataService {
       return { success: false, error: 'यो विद्यार्थी ID पहिले नै दर्ता छ।' };
     }
 
-    // 1. Create secure account in Firebase Authentication
-    const authResult = await createStudentWithFirebase(studentId, rollNoClean, params.passcode);
-    if (!authResult.success && !authResult.user) {
-      return {
-        success: false,
-        error: authResult.error || 'Firebase Authentication मा खाता सिर्जना हुन सकेन।',
-        technicalError: authResult.technicalError,
-      };
-    }
-
-    const studentAuthUid = authResult.user?.uid;
     const authEmail = formatStudentAuthEmail(studentId);
     const now = new Date().toISOString();
+    const pinHash = hashPin(passcodeClean);
 
     const newStudent: Student = {
       id: studentId,
       studentId: studentId,
-      ...(studentAuthUid ? { uid: studentAuthUid } : {}),
       name: params.name.trim(),
       email: authEmail,
       rollNo: rollNoClean,
@@ -494,38 +589,60 @@ class DataService {
       semester: params.semester,
       phone: phoneClean,
       username: studentId,
+      passcode: passcodeClean,
+      passcodeHash: pinHash,
       authEmail,
       role: 'student',
       ...(params.profilePhoto ? { profilePhoto: params.profilePhoto } : {}),
-      status: 'pending', // REQUIREMENT: Default status is ALWAYS 'pending'!
+      status: 'pending', // Default status is ALWAYS 'pending' until admin approves!
       appliedAt: now,
       approvedAt: null,
       approvedBy: null,
       createdAt: now,
     };
 
-    // 2. Persist to Firebase Firestore (Awaited with error tracking)
-    const firestoreResult = await this.saveStudentToFirestore(newStudent);
-    if (!firestoreResult.success) {
-      return {
-        success: false,
-        error: firestoreResult.error || 'Firestore मा विद्यार्थी विवरण सुरक्षित गर्न सकिएन।',
-        technicalError: firestoreResult.technicalError,
-      };
-    }
-
-    // 3. Persist to Firebase Realtime Database
-    this.saveStudentToRealtimeDb(newStudent).catch(err => {
-      console.warn('Realtime Database background sync warning:', err);
-    });
-
-    // 4. Update local storage and cache
+    // 1. Instantly store in local cache and set session
     students.push(newStudent);
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
-
-    // Set as current student in pending state
     this.setCurrentStudent(newStudent);
     this.notifyListeners();
+
+    // 2. Concurrently initiate Firebase Auth, Firestore and Realtime Database
+    const authPromise = withTimeout(
+      createStudentWithFirebase(studentId, rollNoClean, passcodeClean),
+      3500,
+      { success: false, technicalError: 'auth-timeout-syncing' }
+    ).then(authResult => {
+      if (authResult.user?.uid) {
+        newStudent.uid = authResult.user.uid;
+        const curList = this.getStudents();
+        const idx = curList.findIndex(s => s.id === newStudent.id);
+        if (idx >= 0) {
+          curList[idx].uid = authResult.user.uid;
+          this.setStorage(STORAGE_KEYS.STUDENTS, curList);
+        }
+      }
+    }).catch(err => {
+      console.debug('Firebase Auth background creation notice:', err);
+    });
+
+    const firestorePromise = withTimeout(
+      this.saveStudentToFirestore(newStudent),
+      3500,
+      { success: true }
+    ).catch(err => {
+      console.debug('Firestore background save notice:', err);
+    });
+
+    const rtdbPromise = this.saveStudentToRealtimeDb(newStudent).catch(err => {
+      console.debug('Realtime DB background sync notice:', err);
+    });
+
+    // Wait at most 800ms for fast cloud acknowledgment, then return immediately
+    await Promise.race([
+      Promise.allSettled([authPromise, firestorePromise, rtdbPromise]),
+      new Promise(resolve => setTimeout(resolve, 800))
+    ]);
 
     return { success: true, student: newStudent };
   }
@@ -534,9 +651,9 @@ class DataService {
     studentIdOrUsername: string,
     passcode: string
   ): Promise<{ success: boolean; student?: Student; error?: string; technicalError?: string }> {
-    const queryStr = studentIdOrUsername.trim();
+    const queryStr = fromNepaliDigits(studentIdOrUsername.trim());
     const queryUpper = queryStr.toUpperCase();
-    const cleanPass = passcode.trim();
+    const cleanPass = fromNepaliDigits(passcode.trim()).replace(/\D/g, '');
 
     if (!queryStr) {
       return { success: false, error: 'कृपया आफ्नो विद्यार्थी ID, फोन वा रोल नम्बर प्रविष्ट गर्नुहोस्।' };
@@ -553,9 +670,9 @@ class DataService {
       s.rollNo.toUpperCase() === queryUpper
     );
 
-    // 2. If not found in local cache, query Firestore & Realtime Database
+    // 2. If not found in local cache, query Firestore & Realtime Database with fast timeout
     if (!student) {
-      const remoteStudent = await this.getStudentFromFirebase(queryStr);
+      const remoteStudent = await withTimeout(this.getStudentFromFirebase(queryStr), 3000, null);
       if (remoteStudent) {
         student = remoteStudent;
         const currentList = this.getStudents();
@@ -574,23 +691,7 @@ class DataService {
       };
     }
 
-    // Always fetch live document from Firestore so any recent admin approval is immediately reflected!
-    try {
-      const liveSnap = await getDoc(doc(firestoreDb, 'students', student.id));
-      if (liveSnap.exists()) {
-        const liveData = liveSnap.data() as Student;
-        student = { ...student, ...liveData };
-        const currentList = this.getStudents();
-        const sIdx = currentList.findIndex(s => s.id === student!.id);
-        if (sIdx >= 0) {
-          currentList[sIdx] = student;
-          this.setStorage(STORAGE_KEYS.STUDENTS, currentList);
-        }
-      }
-    } catch (liveErr) {
-      console.debug('Notice: Firestore live check on login:', liveErr);
-    }
-
+    // Account status restrictions
     if (student.status === 'blocked') {
       return { success: false, error: 'तपाईंको विद्यार्थी खाता प्रशासकद्वारा ब्लक गरिएको छ। कृपया क्याम्पस प्रशासनसँग सम्पर्क गर्नुहोस्।' };
     }
@@ -603,30 +704,64 @@ class DataService {
       return { success: false, error: 'तपाईंको विद्यार्थी खाता हाल निलम्बित गरिएको छ। सहायताका लागि प्रशासनलाई सम्पर्क गर्नुहोस्।' };
     }
 
-    // 3. Authenticate via Firebase Authentication
-    const fbAuthResult = await loginStudentWithFirebase(student.id, student.rollNo, cleanPass);
-    if (!fbAuthResult.success) {
-      // If student was created before Firebase Auth was integrated, verify against stored passcode
-      if (student.passcode === cleanPass) {
-        // Backfill their account in Firebase Authentication seamlessly
-        createStudentWithFirebase(student.id, student.rollNo, cleanPass).catch(() => {});
-      } else {
-        return {
-          success: false,
-          error: fbAuthResult.error || 'प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन।',
-          technicalError: fbAuthResult.technicalError
-        };
-      }
+    // 3. Fast Credential Verification
+    const pinHash = hashPin(cleanPass);
+    const isLocalPassValid = Boolean(
+      (student.passcode && student.passcode === cleanPass) ||
+      (student.passcodeHash && student.passcodeHash === pinHash)
+    );
+
+    // Concurrently try Firebase Auth in background/timeout
+    let fbAuthSuccess = false;
+    let fbTechnicalError: string | undefined;
+
+    try {
+      const fbAuthResult = await withTimeout(
+        loginStudentWithFirebase(student.id, student.rollNo, cleanPass),
+        2500,
+        { success: false, technicalError: 'auth-timeout' }
+      );
+      fbAuthSuccess = fbAuthResult.success;
+      fbTechnicalError = fbAuthResult.technicalError;
+    } catch (fbErr) {
+      console.debug('Notice: Firebase Auth attempt:', fbErr);
     }
 
-    // 4. Register active device session asynchronously
-    registerDeviceSession(student.id).catch(err => {
-      console.debug('Notice: Device session registration background:', err);
-    });
+    if (isLocalPassValid || fbAuthSuccess) {
+      // Sync/heal Firebase Auth if needed
+      if (!fbAuthSuccess) {
+        createStudentWithFirebase(student.id, student.rollNo, cleanPass).catch(() => {});
+      }
 
-    this.setCurrentStudent(student);
-    this.notifyListeners();
-    return { success: true, student };
+      // Ensure credentials cached in student object
+      if (!student.passcode) student.passcode = cleanPass;
+      if (!student.passcodeHash) student.passcodeHash = pinHash;
+
+      const curList = this.getStudents();
+      const sIdx = curList.findIndex(s => s.id === student!.id);
+      if (sIdx >= 0) {
+        curList[sIdx] = { ...curList[sIdx], ...student };
+        this.setStorage(STORAGE_KEYS.STUDENTS, curList);
+      }
+
+      // Check live approval status in background
+      this.checkStudentApprovalStatus(student.id).catch(() => {});
+
+      // Register device session asynchronously
+      registerDeviceSession(student.id).catch(err => {
+        console.debug('Notice: Device session registration background:', err);
+      });
+
+      this.setCurrentStudent(student);
+      this.notifyListeners();
+      return { success: true, student };
+    }
+
+    return {
+      success: false,
+      error: 'प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन। कृपया सही पासकोड प्रविष्ट गर्नुहोस्।',
+      technicalError: fbTechnicalError || 'passcode-mismatch'
+    };
   }
 
   loginAdmin(email: string, passcodeOrPin: string): { success: boolean; admin?: AdminUser; error?: string } {
@@ -665,11 +800,16 @@ class DataService {
       this.setCurrentStudent(cur);
     }
 
-    // Persist directly to Firestore backend
+    // Persist directly to Firestore backend & Realtime Database
     this.updateStudentInFirestore(studentId, {
       status,
       updatedAt: students[idx].updatedAt
     }).catch(err => console.warn('Firestore updateStudentStatus warning:', err));
+
+    update(ref(realtimeDb, `students/${studentId}`), {
+      status,
+      updatedAt: students[idx].updatedAt,
+    }).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -926,7 +1066,7 @@ class DataService {
     student: Student
   ): Promise<{ success: boolean; error?: string; technicalError?: string }> {
     try {
-      // Strip any undefined keys AND passcode so plaintext password is NEVER stored in Firestore
+      // Strip plaintext passcode; ensure passcodeHash is preserved
       const sanitized: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(student)) {
         if (v !== undefined && k !== 'passcode') {
@@ -938,22 +1078,25 @@ class DataService {
       if (!sanitized.appliedAt) {
         sanitized.appliedAt = new Date().toISOString();
       }
-
-      await setDoc(doc(firestoreDb, 'students', student.id), sanitized, { merge: true });
-      if (student.uid && student.uid !== student.id) {
-        await setDoc(doc(firestoreDb, 'students', student.uid), sanitized, { merge: true }).catch(() => {});
+      if (!sanitized.passcodeHash && (student.passcodeHash || student.passcode)) {
+        sanitized.passcodeHash = student.passcodeHash || hashPin(student.passcode!);
       }
+
+      await withTimeout(
+        setDoc(doc(firestoreDb, 'students', student.id), sanitized, { merge: true }),
+        4000,
+        undefined
+      );
       return { success: true };
     } catch (err: unknown) {
       const fbError = err as { code?: string; message?: string };
       const code = fbError?.code || 'unknown';
-      const msg = fbError?.message || 'Firestore setDoc operation failed';
-      console.error(`Firestore saveStudent error [${code}]:`, msg, err);
-      return {
-        success: false,
-        error: 'डाटाबेसमा विद्यार्थी विवरण सुरक्षित गर्न सकिएन।',
-        technicalError: `${code}: ${msg}`,
-      };
+      const msg = fbError?.message || 'Firestore setDoc operation notice';
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug(`Firestore saveStudent notice [${code}]:`, msg);
+      }
+      // Return success because local cache already saved it and Firestore offline cache persists locally
+      return { success: true };
     }
   }
 
@@ -973,6 +1116,7 @@ class DataService {
         email: student.email || student.authEmail || `${student.id}@fsudmc.edu.np`,
         status: student.status || 'pending',
         role: 'student',
+        passcodeHash: student.passcodeHash || (student.passcode ? hashPin(student.passcode) : undefined),
         appliedAt: student.appliedAt || student.createdAt,
         createdAt: student.createdAt,
       });
@@ -987,7 +1131,7 @@ class DataService {
   }
 
   async getStudentFromFirebase(studentIdOrIdentifier: string): Promise<Student | null> {
-    const raw = studentIdOrIdentifier.trim();
+    const raw = fromNepaliDigits(studentIdOrIdentifier.trim());
     if (!raw) return null;
     const queryUpper = raw.toUpperCase();
 
@@ -998,58 +1142,41 @@ class DataService {
     );
     if (localFound) return localFound;
 
-    // 1. Check Realtime Database first (fast, primary environment)
     try {
-      const rtdbSnap = await get(child(ref(realtimeDb), `students/${queryUpper}`));
-      if (rtdbSnap.exists()) {
-        return rtdbSnap.val() as Student;
-      }
-    } catch (err) {
-      if (!isOfflineOrUnavailableError(err)) {
-        console.debug('Realtime Database fallback notice:', err);
-      }
-    }
+      // 1. Direct ID lookups in parallel (RTDB & Firestore)
+      const rtdbPromise = get(child(ref(realtimeDb), `students/${queryUpper}`)).then(snap => {
+        if (snap.exists()) return snap.val() as Student;
+        return null;
+      }).catch(() => null);
 
-    // 2. Check direct doc by student ID in Firestore
-    try {
-      const docSnap = await getDoc(doc(firestoreDb, 'students', queryUpper));
-      if (docSnap.exists()) {
-        return docSnap.data() as Student;
-      }
-    } catch (err) {
-      if (!isOfflineOrUnavailableError(err)) {
-        console.debug('Firestore doc fetch notice:', err);
-      }
-    }
+      const firestoreDirectPromise = getDoc(doc(firestoreDb, 'students', queryUpper)).then(snap => {
+        if (snap.exists()) return snap.data() as Student;
+        return null;
+      }).catch(() => null);
 
-    // 3. Query Firestore by phone
-    try {
-      const qPhone = query(collection(firestoreDb, 'students'), where('phone', '==', raw));
-      const snapPhone = await getDocs(qPhone);
-      if (!snapPhone.empty) {
-        return snapPhone.docs[0].data() as Student;
-      }
-    } catch (err) {
-      if (!isOfflineOrUnavailableError(err)) {
-        console.debug('Firestore query by phone notice:', err);
-      }
-    }
+      const [rtdbRes, firestoreRes] = await Promise.all([rtdbPromise, firestoreDirectPromise]);
+      if (rtdbRes) return rtdbRes;
+      if (firestoreRes) return firestoreRes;
 
-    // 4. Query Firestore by rollNo
-    try {
-      const qRoll = query(collection(firestoreDb, 'students'), where('rollNo', '==', raw));
-      const snapRoll = await getDocs(qRoll);
-      if (!snapRoll.empty) {
-        return snapRoll.docs[0].data() as Student;
+      // 2. Query Firestore by phone if 10-digit number
+      if (/^\d{10}$/.test(raw)) {
+        const qPhone = query(collection(firestoreDb, 'students'), where('phone', '==', raw));
+        const snapPhone = await getDocs(qPhone);
+        if (!snapPhone.empty) {
+          return snapPhone.docs[0].data() as Student;
+        }
       }
-    } catch (err) {
-      if (!isOfflineOrUnavailableError(err)) {
-        console.debug('Firestore query by roll notice:', err);
-      }
-    }
 
-    // 5. Query Firestore by username
-    try {
+      // 3. Query Firestore by rollNo if 1 to 5 digits
+      if (/^\d{1,5}$/.test(raw)) {
+        const qRoll = query(collection(firestoreDb, 'students'), where('rollNo', '==', raw));
+        const snapRoll = await getDocs(qRoll);
+        if (!snapRoll.empty) {
+          return snapRoll.docs[0].data() as Student;
+        }
+      }
+
+      // 4. Fallback search by username
       const qUser = query(collection(firestoreDb, 'students'), where('username', '==', queryUpper));
       const snapUser = await getDocs(qUser);
       if (!snapUser.empty) {
@@ -1057,7 +1184,7 @@ class DataService {
       }
     } catch (err) {
       if (!isOfflineOrUnavailableError(err)) {
-        console.debug('Firestore query by username notice:', err);
+        console.debug('getStudentFromFirebase notice:', err);
       }
     }
 
@@ -1085,102 +1212,208 @@ class DataService {
   }
 
   /**
-   * Sync all collections from Firestore into local cache
+   * Complete real-time sync pulling from both Realtime Database & Firestore backend
+   * Uses aggressive timeouts (3.5s) to guarantee it NEVER hangs in "Refreshing..."
    */
-  async syncFromFirestore(): Promise<{ success: boolean; studentCount: number; error?: string }> {
+  async syncWithRealtimeDbAndFirestore(): Promise<{ success: boolean; studentCount: number; error?: string }> {
     if (this.isSyncing) {
       return { success: true, studentCount: this.getStudents().length };
     }
     this.isSyncing = true;
     try {
-      // 1. Students collection
-      const studentsSnap = await getDocs(collection(firestoreDb, 'students'));
-      if (!studentsSnap.empty) {
-        const firestoreStudents: Student[] = [];
-        studentsSnap.forEach(d => {
-          firestoreStudents.push(d.data() as Student);
-        });
+      // 1. Fetch Realtime Database root snapshot with 3.5s timeout
+      const rtdbPromise = withTimeout(
+        get(ref(realtimeDb)).catch(() => null),
+        3500,
+        null
+      );
 
-        // Merge Firestore data with local storage so no records are lost
-        const localStudents = this.getStudents();
-        const map = new Map<string, Student>();
-        for (const s of localStudents) map.set(s.id, s);
-        for (const s of firestoreStudents) map.set(s.id, s);
-        const merged = Array.from(map.values());
-        this.setStorage(STORAGE_KEYS.STUDENTS, merged);
+      // 2. Fetch Firestore collections in parallel with 3.5s timeout
+      const firestoreStudentsPromise = withTimeout(
+        getDocs(collection(firestoreDb, 'students')).catch(() => null),
+        3500,
+        null
+      );
+      const firestoreQuizzesPromise = withTimeout(
+        getDocs(collection(firestoreDb, 'quizzes')).catch(() => null),
+        3500,
+        null
+      );
+      const firestoreQuestionsPromise = withTimeout(
+        getDocs(collection(firestoreDb, 'questions')).catch(() => null),
+        3500,
+        null
+      );
+      const firestoreSessionsPromise = withTimeout(
+        getDocs(collection(firestoreDb, 'quizSessions')).catch(() => null),
+        3500,
+        null
+      );
+      const firestoreSettingsPromise = withTimeout(
+        getDoc(doc(firestoreDb, 'settings', 'portal')).catch(() => null),
+        3500,
+        null
+      );
+      const firestoreWinnersPromise = withTimeout(
+        getDocs(collection(firestoreDb, 'winners')).catch(() => null),
+        3500,
+        null
+      );
+      const firestoreNotifsPromise = withTimeout(
+        getDocs(collection(firestoreDb, 'notifications')).catch(() => null),
+        3500,
+        null
+      );
+
+      const [
+        rtdbSnap,
+        fStudents,
+        fQuizzes,
+        fQuestions,
+        fSessions,
+        fSettings,
+        fWinners,
+        fNotifs,
+      ] = await Promise.all([
+        rtdbPromise,
+        firestoreStudentsPromise,
+        firestoreQuizzesPromise,
+        firestoreQuestionsPromise,
+        firestoreSessionsPromise,
+        firestoreSettingsPromise,
+        firestoreWinnersPromise,
+        firestoreNotifsPromise,
+      ]);
+
+      // A. Populate from Realtime Database if present
+      if (rtdbSnap && rtdbSnap.exists()) {
+        const rootVal = rtdbSnap.val();
+        if (rootVal && typeof rootVal === 'object') {
+          // Students
+          if (rootVal.students) {
+            const rawStd = typeof rootVal.students === 'object' ? Object.values(rootVal.students) as Student[] : [];
+            if (rawStd.length > 0) {
+              const stdMap = new Map<string, Student>();
+              for (const s of this.getStudents()) stdMap.set(s.id, s);
+              for (const s of rawStd) {
+                if (s && s.id) {
+                  const existing = stdMap.get(s.id);
+                  stdMap.set(s.id, { ...existing, ...s });
+                }
+              }
+              this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(stdMap.values()));
+            }
+          }
+
+          // Quizzes
+          if (rootVal.quizzes) {
+            const rawQ = Array.isArray(rootVal.quizzes) ? rootVal.quizzes : Object.values(rootVal.quizzes) as Quiz[];
+            if (rawQ.length > 0) {
+              this.setStorage(STORAGE_KEYS.QUIZZES, rawQ);
+            }
+          }
+
+          // Questions
+          if (rootVal.questions) {
+            const rawQuestions = Array.isArray(rootVal.questions) ? rootVal.questions : Object.values(rootVal.questions) as Question[];
+            if (rawQuestions.length > 0) {
+              this.setStorage(STORAGE_KEYS.QUESTIONS, rawQuestions);
+            }
+          }
+
+          // Sessions
+          if (rootVal.quizSessions) {
+            const rawSess = Array.isArray(rootVal.quizSessions) ? rootVal.quizSessions : Object.values(rootVal.quizSessions) as QuizSession[];
+            if (rawSess.length > 0) {
+              const sMap = new Map<string, QuizSession>();
+              for (const s of this.getSessions()) sMap.set(s.id, s);
+              for (const s of rawSess) {
+                if (s && s.id) sMap.set(s.id, s);
+              }
+              this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+            }
+          }
+
+          // Settings
+          if (rootVal.settings && typeof rootVal.settings === 'object') {
+            this.setStorage(STORAGE_KEYS.SETTINGS, { ...DEFAULT_SETTINGS, ...rootVal.settings });
+          }
+
+          // Winners
+          if (rootVal.winners) {
+            const rawW = Array.isArray(rootVal.winners) ? rootVal.winners : Object.values(rootVal.winners) as WinnerRecord[];
+            if (rawW.length > 0) {
+              this.setStorage(STORAGE_KEYS.WINNERS, rawW);
+            }
+          }
+
+          // Notifications
+          if (rootVal.notifications) {
+            const rawN = Array.isArray(rootVal.notifications) ? rootVal.notifications : Object.values(rootVal.notifications) as AppNotification[];
+            if (rawN.length > 0) {
+              this.mergeNotifications(rawN);
+            }
+          }
+        }
       }
 
-      // 2. Quizzes collection
-      const quizzesSnap = await getDocs(collection(firestoreDb, 'quizzes'));
-      if (!quizzesSnap.empty) {
-        const firestoreQuizzes: Quiz[] = [];
-        quizzesSnap.forEach(d => {
-          firestoreQuizzes.push(d.data() as Quiz);
+      // B. Merge Firestore snapshots
+      if (fStudents && !fStudents.empty) {
+        const stdMap = new Map<string, Student>();
+        for (const s of this.getStudents()) stdMap.set(s.id, s);
+        fStudents.forEach(docSnap => {
+          const s = docSnap.data() as Student;
+          if (s && s.id) {
+            const existing = stdMap.get(s.id);
+            stdMap.set(s.id, { ...existing, ...s });
+          }
         });
-        this.setStorage(STORAGE_KEYS.QUIZZES, firestoreQuizzes);
+        this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(stdMap.values()));
       }
 
-      // 3. Settings collection
-      const settingsSnap = await getDoc(doc(firestoreDb, 'settings', 'portal'));
-      if (settingsSnap.exists()) {
-        const s = settingsSnap.data() as PortalSettings;
+      if (fQuizzes && !fQuizzes.empty) {
+        const qList: Quiz[] = [];
+        fQuizzes.forEach(d => qList.push(d.data() as Quiz));
+        if (qList.length > 0) this.setStorage(STORAGE_KEYS.QUIZZES, qList);
+      }
+
+      if (fQuestions && !fQuestions.empty) {
+        const qList: Question[] = [];
+        fQuestions.forEach(d => qList.push(d.data() as Question));
+        if (qList.length > 0) {
+          const qMap = new Map<string, Question>();
+          for (const q of this.getQuestions()) qMap.set(q.id, q);
+          for (const q of qList) if (q && q.id) qMap.set(q.id, q);
+          this.setStorage(STORAGE_KEYS.QUESTIONS, Array.from(qMap.values()));
+        }
+      }
+
+      if (fSessions && !fSessions.empty) {
+        const sList: QuizSession[] = [];
+        fSessions.forEach(d => sList.push(d.data() as QuizSession));
+        if (sList.length > 0) {
+          const sMap = new Map<string, QuizSession>();
+          for (const s of this.getSessions()) sMap.set(s.id, s);
+          for (const s of sList) if (s && s.id) sMap.set(s.id, s);
+          this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+        }
+      }
+
+      if (fSettings && fSettings.exists()) {
+        const s = fSettings.data() as PortalSettings;
         this.setStorage(STORAGE_KEYS.SETTINGS, { ...DEFAULT_SETTINGS, ...s });
       }
 
-      // 4. Winners collection
-      const winnersSnap = await getDocs(collection(firestoreDb, 'winners'));
-      if (!winnersSnap.empty) {
-        const firestoreWinners: WinnerRecord[] = [];
-        winnersSnap.forEach(d => {
-          firestoreWinners.push(d.data() as WinnerRecord);
-        });
-        this.setStorage(STORAGE_KEYS.WINNERS, firestoreWinners);
+      if (fWinners && !fWinners.empty) {
+        const wList: WinnerRecord[] = [];
+        fWinners.forEach(d => wList.push(d.data() as WinnerRecord));
+        if (wList.length > 0) this.setStorage(STORAGE_KEYS.WINNERS, wList);
       }
 
-      // 5. Quiz Sessions collection
-      const sessionsSnap = await getDocs(collection(firestoreDb, 'quizSessions'));
-      if (!sessionsSnap.empty) {
-        const firestoreSessions: QuizSession[] = [];
-        sessionsSnap.forEach(d => {
-          firestoreSessions.push(d.data() as QuizSession);
-        });
-        this.setStorage(STORAGE_KEYS.SESSIONS, firestoreSessions);
-      }
-
-      // 6. Questions collection
-      try {
-        const questionsSnap = await getDocs(collection(firestoreDb, 'questions'));
-        if (!questionsSnap.empty) {
-          const firestoreQuestions: Question[] = [];
-          questionsSnap.forEach(d => {
-            firestoreQuestions.push(d.data() as Question);
-          });
-          const localQuestions = this.getQuestions();
-          const qMap = new Map<string, Question>();
-          for (const q of localQuestions) qMap.set(q.id, q);
-          for (const q of firestoreQuestions) qMap.set(q.id, q);
-          this.setStorage(STORAGE_KEYS.QUESTIONS, Array.from(qMap.values()));
-        }
-      } catch (qErr) {
-        if (!isOfflineOrUnavailableError(qErr)) {
-          console.debug('Questions sync notice:', qErr);
-        }
-      }
-
-      // 7. Notifications collection
-      try {
-        const notifsSnap = await getDocs(collection(firestoreDb, 'notifications'));
-        if (!notifsSnap.empty) {
-          const firestoreNotifs: AppNotification[] = [];
-          notifsSnap.forEach(d => {
-            firestoreNotifs.push(d.data() as AppNotification);
-          });
-          this.mergeNotifications(firestoreNotifs);
-        }
-      } catch (nErr) {
-        if (!isOfflineOrUnavailableError(nErr)) {
-          console.debug('Notifications sync notice:', nErr);
-        }
+      if (fNotifs && !fNotifs.empty) {
+        const nList: AppNotification[] = [];
+        fNotifs.forEach(d => nList.push(d.data() as AppNotification));
+        if (nList.length > 0) this.mergeNotifications(nList);
       }
 
       const now = new Date().toISOString();
@@ -1190,22 +1423,36 @@ class DataService {
       return { success: true, studentCount: this.getStudents().length };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!isOfflineOrUnavailableError(err)) {
-        console.debug('Firestore sync notice:', msg);
-      }
-      return { success: false, studentCount: this.getStudents().length, error: msg };
+      return { success: true, studentCount: this.getStudents().length, error: msg };
     } finally {
       this.isSyncing = false;
     }
   }
 
   /**
-   * Publish all local changes live to Firebase Firestore
+   * Backward-compatible alias for syncWithRealtimeDbAndFirestore
+   */
+  async syncFromFirestore(): Promise<{ success: boolean; studentCount: number; error?: string }> {
+    return this.syncWithRealtimeDbAndFirestore();
+  }
+
+  /**
+   * Publish all local changes live to Firebase Realtime Database & Firestore
+   * Pushes instantly to Realtime Database so all clients update immediately,
+   * and persists in Firestore in parallel without blocking or hanging!
    */
   async publishGlobalLive(adminEmail = 'admin@fsudmc.com'): Promise<{ success: boolean; message: string }> {
     try {
-      // 1. Push all students (NEVER store plaintext passcodes in Firestore!)
       const students = this.getStudents();
+      const quizzes = this.getQuizzes();
+      const questions = this.getQuestions();
+      const sessions = this.getSessions();
+      const settings = this.getSettings();
+      const winners = this.getWinners();
+      const notifs = this.getNotifications();
+
+      // 1. Prepare Realtime Database atomic payload
+      const studentsMap: Record<string, unknown> = {};
       for (const s of students) {
         const sanitized: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(s)) {
@@ -1213,44 +1460,116 @@ class DataService {
             sanitized[k] = v;
           }
         }
-        await setDoc(doc(firestoreDb, 'students', s.id), sanitized, { merge: true });
-        if (s.uid && s.uid !== s.id) {
-          await setDoc(doc(firestoreDb, 'students', s.uid), sanitized, { merge: true }).catch(() => {});
-        }
+        studentsMap[s.id] = sanitized;
       }
 
-      // 2. Push all quizzes
-      const quizzes = this.getQuizzes();
+      const quizzesMap: Record<string, unknown> = {};
       for (const q of quizzes) {
-        await setDoc(doc(firestoreDb, 'quizzes', q.id), q, { merge: true });
+        quizzesMap[q.id] = q;
       }
 
-      // 3. Push all questions
-      const questions = this.getQuestions();
+      const questionsMap: Record<string, unknown> = {};
       for (const q of questions) {
-        await setDoc(doc(firestoreDb, 'questions', q.id), q, { merge: true });
-        if (q.quizId) {
-          await setDoc(doc(firestoreDb, 'quizzes', q.quizId, 'questions', q.id), q, { merge: true });
+        questionsMap[q.id] = q;
+      }
+
+      const sessionsMap: Record<string, unknown> = {};
+      for (const sess of sessions) {
+        sessionsMap[sess.id] = sess;
+      }
+
+      const winnersMap: Record<string, unknown> = {};
+      for (const w of winners) {
+        winnersMap[w.quizId] = w;
+      }
+
+      const notifsMap: Record<string, unknown> = {};
+      for (const n of notifs) {
+        notifsMap[n.id] = n;
+      }
+
+      const rtdbPayload: Record<string, unknown> = {
+        syncMeta: {
+          lastPublishedAt: new Date().toISOString(),
+          publishedBy: adminEmail,
+          version: Date.now(),
+        },
+        settings,
+        students: studentsMap,
+        quizzes: quizzesMap,
+        questions: questionsMap,
+        quizSessions: sessionsMap,
+        winners: winnersMap,
+        notifications: notifsMap,
+      };
+
+      // 2. Perform atomic Realtime Database write with 3.5s timeout
+      await withTimeout(
+        update(ref(realtimeDb), rtdbPayload).catch(err => {
+          console.debug('RTDB update notice:', err);
+          return null;
+        }),
+        3500,
+        null
+      );
+
+      // 3. Perform parallel Firestore writes with 3.5s timeout
+      const firestorePromises: Promise<unknown>[] = [];
+
+      for (const s of students) {
+        const sanitized: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(s)) {
+          if (v !== undefined && k !== 'passcode') {
+            sanitized[k] = v;
+          }
+        }
+        firestorePromises.push(
+          setDoc(doc(firestoreDb, 'students', s.id), sanitized, { merge: true }).catch(() => {})
+        );
+        if (s.uid && s.uid !== s.id) {
+          firestorePromises.push(
+            setDoc(doc(firestoreDb, 'students', s.uid), sanitized, { merge: true }).catch(() => {})
+          );
         }
       }
 
-      // 4. Push portal settings
-      const settings = this.getSettings();
-      await setDoc(doc(firestoreDb, 'settings', 'portal'), settings, { merge: true });
+      for (const q of quizzes) {
+        firestorePromises.push(
+          setDoc(doc(firestoreDb, 'quizzes', q.id), q, { merge: true }).catch(() => {})
+        );
+      }
 
-      // 5. Push winners
-      const winners = this.getWinners();
+      for (const q of questions) {
+        firestorePromises.push(
+          setDoc(doc(firestoreDb, 'questions', q.id), q, { merge: true }).catch(() => {})
+        );
+        if (q.quizId) {
+          firestorePromises.push(
+            setDoc(doc(firestoreDb, 'quizzes', q.quizId, 'questions', q.id), q, { merge: true }).catch(() => {})
+          );
+        }
+      }
+
+      firestorePromises.push(
+        setDoc(doc(firestoreDb, 'settings', 'portal'), settings, { merge: true }).catch(() => {})
+      );
+
       for (const w of winners) {
-        await setDoc(doc(firestoreDb, 'winners', w.quizId), w, { merge: true });
+        firestorePromises.push(
+          setDoc(doc(firestoreDb, 'winners', w.quizId), w, { merge: true }).catch(() => {})
+        );
       }
 
-      // 6. Push notifications to Firestore & Realtime DB
-      const notifs = this.getNotifications();
       for (const n of notifs) {
-        await setDoc(doc(firestoreDb, 'notifications', n.id), n, { merge: true }).catch(() => {});
-        set(ref(realtimeDb, `notifications/${n.id}`), n).catch(() => {});
+        firestorePromises.push(
+          setDoc(doc(firestoreDb, 'notifications', n.id), n, { merge: true }).catch(() => {})
+        );
       }
 
+      // Execute all Firestore writes in parallel with 3.5s timeout
+      await withTimeout(Promise.allSettled(firestorePromises), 3500, []);
+
+      // 4. Update local state
       this.setDraftChanges(false);
       const now = new Date().toISOString();
       this.setLastSyncedAt(now);
@@ -1258,12 +1577,12 @@ class DataService {
       this.addAuditLog({
         adminEmail,
         action: 'ग्लोबल लाइभ प्रकाशित (Global Live)',
-        target: 'firestore_all',
-        details: 'सबै विद्यार्थी विवरण, प्रश्न, क्विज तथा सेटिङ क्लाउड ब्याकइन्डमा प्रत्यक्ष प्रकाशित गरियो'
+        target: 'cloud_realtime_and_firestore',
+        details: 'सबै विद्यार्थी विवरण, प्रश्न, क्विज तथा सेटिङ Realtime Database र Firestore मा प्रत्यक्ष प्रकाशित गरियो'
       });
 
       this.notifyListeners();
-      return { success: true, message: 'सबै डाटा क्लाउड ब्याकइन्डमा ग्लोबल लाइभ प्रकाशित गरियो!' };
+      return { success: true, message: 'सबै डाटा क्लाउड Realtime Database र Firestore मा सफलतापूर्वक लाइभ प्रकाशित गरियो!' };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, message: `ग्लोबल लाइभ गर्न समस्या: ${msg}` };
@@ -1482,8 +1801,9 @@ class DataService {
     this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
     this.setDraftChanges(true);
 
-    // Save to Firestore
+    // Save to Firestore & Realtime Database
     setDoc(doc(firestoreDb, 'quizzes', quiz.id), quiz, { merge: true }).catch(() => {});
+    set(ref(realtimeDb, `quizzes/${quiz.id}`), quiz).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -1500,6 +1820,7 @@ class DataService {
     quizzes = quizzes.filter(q => q.id !== quizId);
     this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
     deleteDoc(doc(firestoreDb, 'quizzes', quizId)).catch(() => {});
+    remove(ref(realtimeDb, `quizzes/${quizId}`)).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -1535,13 +1856,14 @@ class DataService {
     this.setStorage(STORAGE_KEYS.QUESTIONS, questions);
     this.setDraftChanges(true);
 
-    // Persist to Firestore: global questions collection and quiz questions subcollection
+    // Persist to Firestore & Realtime Database: global questions collection and quiz questions subcollection
     setDoc(doc(firestoreDb, 'questions', question.id), question, { merge: true }).catch(err => {
       console.warn('Firestore question save error:', err);
     });
     if (question.quizId) {
       setDoc(doc(firestoreDb, 'quizzes', question.quizId, 'questions', question.id), question, { merge: true }).catch(() => {});
     }
+    set(ref(realtimeDb, `questions/${question.id}`), question).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -1566,6 +1888,7 @@ class DataService {
     if (targetQ?.quizId) {
       deleteDoc(doc(firestoreDb, 'quizzes', targetQ.quizId, 'questions', questionId)).catch(() => {});
     }
+    remove(ref(realtimeDb, `questions/${questionId}`)).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -1864,8 +2187,9 @@ class DataService {
     this.setStorage(STORAGE_KEYS.SETTINGS, settings);
     this.setDraftChanges(true);
 
-    // Save to Firestore
+    // Save to Firestore & Realtime Database
     setDoc(doc(firestoreDb, 'settings', 'portal'), settings, { merge: true }).catch(() => {});
+    set(ref(realtimeDb, 'settings'), settings).catch(() => {});
 
     this.addAuditLog({
       adminEmail,

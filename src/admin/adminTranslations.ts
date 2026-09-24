@@ -30,14 +30,14 @@ export const adminTranslations = {
     // Global sync actions
     refreshDatabase: 'डाटाबेस रिफ्रेस',
     refreshing: 'रिफ्रेस हुँदैछ...',
-    refreshedSuccess: 'फायरबेस ब्याकइन्डबाट डाटाबेस सफलतापूर्वक रिफ्रेस भयो!',
+    refreshedSuccess: 'रियलटाइम डाटाबेसबाट सबै डाटा सफलतापूर्वक रिफ्रेस भयो!',
     saveDraft: 'ड्राफ्ट सेभ',
     savingDraft: 'सेभ हुँदैछ...',
     draftSavedSuccess: 'परिवर्तनहरू ड्राफ्टको रूपमा सेभ गरियो!',
     publishGlobalLive: 'ग्लोबल लाइभ (Publish Live)',
     publishingLive: 'लाइभ प्रकाशित हुँदैछ...',
-    publishedLiveSuccess: 'सबै परिवर्तनहरू फायरबेस ब्याकइन्डमा ग्लोबल लाइभ प्रकाशित गरियो!',
-    statusGlobalLive: 'ग्लोबल लाइभ सक्रिय',
+    publishedLiveSuccess: 'सबै परिवर्तनहरू रियलटाइम डाटाबेस र क्लाउडमा ग्लोबल लाइभ प्रकाशित गरियो!',
+    statusGlobalLive: 'रियलटाइम डाटाबेस प्रत्यक्ष सक्रिय (Live)',
     statusDraftChanges: 'अप्रकाशित ड्राफ्ट परिवर्तनहरू छन्',
 
     // Sidebar items
@@ -147,14 +147,14 @@ export const adminTranslations = {
     // Global sync actions
     refreshDatabase: 'Refresh Database',
     refreshing: 'Refreshing...',
-    refreshedSuccess: 'Database successfully refreshed from Firebase Firestore!',
+    refreshedSuccess: 'Database successfully refreshed from Realtime Database & Cloud!',
     saveDraft: 'Save Draft',
     savingDraft: 'Saving Draft...',
     draftSavedSuccess: 'Changes saved locally as Draft!',
     publishGlobalLive: 'Publish Global Live',
     publishingLive: 'Publishing Live...',
-    publishedLiveSuccess: 'All changes published globally live to Firebase Backend!',
-    statusGlobalLive: 'Global Live Synced',
+    publishedLiveSuccess: 'All changes published globally live to Realtime Database & Cloud!',
+    statusGlobalLive: 'Realtime Database Live Synced',
     statusDraftChanges: 'Unpublished Draft Changes',
 
     // Sidebar items

@@ -130,10 +130,17 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
           <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-200 text-xs space-y-2">
             <div className="font-bold text-emerald-900 flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>क्लाउड फायरस्टोर र अथेन्टिकेसन कन्फिगरेसन सक्रिय छ।</span>
+              <span>क्लाउड रियलटाइम डाटाबेस (RTDB) तथा फायरस्टोर प्रत्यक्ष सक्रिय छ।</span>
             </div>
             <p className="font-mono text-slate-600">प्रोजेक्ट ID: <b>{config.projectId}</b></p>
+            <p className="font-mono text-slate-600">रियलटाइम डाटाबेस: <b>{config.databaseURL || 'quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app'}</b></p>
             <p className="font-mono text-slate-600">अथेन्टिकेसन डोमेन: <b>{config.authDomain}</b></p>
+            <div className="flex items-center gap-2 pt-2">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-bold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                प्रत्यक्ष लाइभ स्ट्रिमिङ सक्रिय (Live Streaming)
+              </span>
+            </div>
             <button
               onClick={clearManualFirebaseConfig}
               className="text-xs text-red-600 hover:underline pt-2 font-bold block"

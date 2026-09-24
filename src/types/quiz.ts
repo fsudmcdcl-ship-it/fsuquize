@@ -29,7 +29,8 @@ export interface Student {
   semester: string; // e.g., प्रथम, दोस्रो, तेस्रो, etc.
   phone: string;
   username: string; // e.g., FSU25678
-  passcode?: string; // in-memory only, NEVER stored in Firestore or Realtime DB
+  passcode?: string; // stored locally in session/localStorage
+  passcodeHash?: string; // deterministic obfuscated hash for cross-device & cloud verification
   role?: 'student';
   authEmail?: string;
   profilePhoto?: string;

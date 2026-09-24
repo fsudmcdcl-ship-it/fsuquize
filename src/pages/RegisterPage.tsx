@@ -1,8 +1,8 @@
 import React, { useState, useId } from 'react';
 import { dataService } from '../lib/dataService';
 import type { Student } from '../types/quiz';
-import { toNepaliDigits } from '../lib/nepaliUtils';
-import { Upload, X, Check, AlertCircle, Eye, EyeOff, ShieldCheck, ArrowRight, Camera } from 'lucide-react';
+import { toNepaliDigits, fromNepaliDigits } from '../lib/nepaliUtils';
+import { Upload, X, Check, AlertCircle, Eye, EyeOff, ShieldCheck, ArrowRight, Camera, Loader2 } from 'lucide-react';
 
 interface RegisterPageProps {
   navigate: (path: string) => void;
@@ -27,8 +27,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
   const fileInputId = useId();
 
   // Dynamic automatic student ID generation: FSU + roll + last3(phone)
-  const cleanRoll = rollNo.trim();
-  const cleanPhone = phone.trim();
+  const cleanRoll = fromNepaliDigits(rollNo.trim());
+  const cleanPhone = fromNepaliDigits(phone.trim()).replace(/\D/g, '');
   const last3 = cleanPhone.length >= 3 ? cleanPhone.slice(-3) : 'XXX';
   const generatedId = cleanRoll ? `FSU${cleanRoll}${last3}` : 'FSU---';
 
@@ -50,14 +50,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
       return;
     }
 
-    // Resize and compress via canvas
+    // Resize and compress via canvas (max 220px at 0.72 quality for ultra-fast uploads)
     const reader = new FileReader();
     reader.onload = event => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 300;
-        const MAX_HEIGHT = 300;
+        const MAX_WIDTH = 220;
+        const MAX_HEIGHT = 220;
         let width = img.width;
         let height = img.height;
 
@@ -73,12 +73,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
           }
         }
 
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = Math.round(width);
+        canvas.height = Math.round(height);
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
         setProfilePhoto(dataUrl);
       };
       img.src = event.target?.result as string;
@@ -95,6 +95,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
     e.preventDefault();
     setError('');
 
+    const normRoll = fromNepaliDigits(rollNo.trim());
+    const normPhone = fromNepaliDigits(phone.trim()).replace(/\D/g, '');
+    const normPass = fromNepaliDigits(passcode.trim()).replace(/\D/g, '');
+    const normConfirm = fromNepaliDigits(confirmPasscode.trim()).replace(/\D/g, '');
+
     if (!name.trim()) {
       setError('कृपया आफ्नो पूरा नाम प्रविष्ट गर्नुहोस्।');
       return;
@@ -103,19 +108,19 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
       setError('कृपया आफ्नो स्पष्ट प्रोफाइल फोटो अनिवार्य रूपमा अपलोड गर्नुहोस्। प्रोफाइल फोटो विना दर्ता मान्य हुँदैन।');
       return;
     }
-    if (!rollNo.trim()) {
+    if (!normRoll) {
       setError('कृपया रोल नम्बर प्रविष्ट गर्नुहोस्।');
       return;
     }
-    if (!phone.trim() || phone.trim().length !== 10 || !/^\d{10}$/.test(phone.trim())) {
+    if (!normPhone || normPhone.length !== 10 || !/^\d{10}$/.test(normPhone)) {
       setError('क्याम्पस सम्पर्क नम्बर १० अंकको हुनुपर्छ।');
       return;
     }
-    if (!passcode || passcode.length !== 4 || !/^\d{4}$/.test(passcode)) {
+    if (!normPass || normPass.length !== 4 || !/^\d{4}$/.test(normPass)) {
       setError('पासकोड ठ्याक्कै ४ अंकको संख्या मात्र हुनुपर्छ।');
       return;
     }
-    if (passcode !== confirmPasscode) {
+    if (normPass !== normConfirm) {
       setError('दुबै पटक प्रविष्ट गरिएको पासकोड समान भएन।');
       return;
     }
@@ -125,11 +130,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
     try {
       const result = await dataService.registerStudent({
         name: name.trim(),
-        rollNo: rollNo.trim(),
+        rollNo: normRoll,
         class: studentClass,
         semester,
-        phone: phone.trim(),
-        passcode: passcode.trim(),
+        phone: normPhone,
+        passcode: normPass,
         profilePhoto: profilePhoto || undefined,
       });
 
@@ -137,7 +142,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
 
       if (!result.success || !result.student) {
         if (result.technicalError) {
-          console.error('Technical Firebase Registration Failure:', result.technicalError);
+          console.error('Technical Registration Notice:', result.technicalError);
         }
         setError(result.error || 'दर्ता गर्दा समस्या देखियो। कृपया पुनः प्रयास गर्नुहोस्।');
         return;
@@ -148,7 +153,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
     } catch (err: unknown) {
       setIsSubmitting(false);
       console.error('Unhandled registration exception:', err);
-      setError('दर्ता प्रक्रियामा अप्रत्याशित त्रुटि आयो। कृपया इन्टरनेट जडान जाँच गर्नुहोस्।');
+      setError('दर्ता गर्दा प्राविधिक त्रुटि भयो। कृपया पुनः प्रयास गर्नुहोस्।');
     }
   };
 
@@ -353,7 +358,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                 type="text"
                 required
                 value={rollNo}
-                onChange={e => setRollNo(e.target.value)}
+                onChange={e => setRollNo(fromNepaliDigits(e.target.value))}
                 placeholder="उदा. 25"
                 className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium"
               />
@@ -368,7 +373,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                 required
                 maxLength={10}
                 value={phone}
-                onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+                onChange={e => setPhone(fromNepaliDigits(e.target.value).replace(/\D/g, ''))}
                 placeholder="उदा. 9812345678"
                 className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium font-mono"
               />
@@ -403,7 +408,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                   maxLength={4}
                   autoComplete="new-password"
                   value={passcode}
-                  onChange={e => setPasscode(e.target.value.replace(/\D/g, ''))}
+                  onChange={e => setPasscode(fromNepaliDigits(e.target.value).replace(/\D/g, ''))}
                   placeholder="•••• (४ अंक)"
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium font-mono tracking-widest"
                 />
@@ -427,7 +432,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                 maxLength={4}
                 autoComplete="new-password"
                 value={confirmPasscode}
-                onChange={e => setConfirmPasscode(e.target.value.replace(/\D/g, ''))}
+                onChange={e => setConfirmPasscode(fromNepaliDigits(e.target.value).replace(/\D/g, ''))}
                 placeholder="•••• (पुनः टाइप)"
                 className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium font-mono tracking-widest"
               />
@@ -439,17 +444,17 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black text-base rounded-2xl shadow-md shadow-red-600/25 transition flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-4 bg-red-600 hover:bg-red-700 disabled:opacity-70 disabled:cursor-not-allowed text-white font-black text-base rounded-2xl shadow-md shadow-red-600/25 transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
             >
               {isSubmitting ? (
                 <>
-                  <span className="animate-spin text-lg">⏳</span>
-                  <span>खाता निर्माण हुँदैछ...</span>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>खाता निर्माण हुँदैछ... (Creating Account...)</span>
                 </>
               ) : (
                 <>
                   <Check className="w-5 h-5" />
-                  <span>दर्ता गर्नुहोस्</span>
+                  <span>दर्ता गर्नुहोस् (Register Now)</span>
                 </>
               )}
             </button>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { dataService } from '../lib/dataService';
 import type { Student } from '../types/quiz';
-import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff, ShieldCheck, HelpCircle, UserPlus } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff, HelpCircle, UserPlus, Loader2, Shield } from 'lucide-react';
+import { fromNepaliDigits } from '../lib/nepaliUtils';
 
 interface LoginPageProps {
   navigate: (path: string) => void;
@@ -20,23 +21,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
     e.preventDefault();
     setError('');
 
-    if (!studentId.trim()) {
-      setError('कृपया आफ्नो विद्यार्थी ID प्रविष्ट गर्नुहोस्।');
+    const cleanId = fromNepaliDigits(studentId.trim());
+    const cleanPass = fromNepaliDigits(passcode.trim()).replace(/\D/g, '');
+
+    if (!cleanId) {
+      setError('कृपया आफ्नो विद्यार्थी ID, फोन वा रोल नम्बर प्रविष्ट गर्नुहोस्।');
       return;
     }
-    if (!passcode.trim()) {
+    if (!cleanPass) {
       setError('कृपया ४ अंकको पासकोड प्रविष्ट गर्नुहोस्।');
       return;
     }
 
+    // Auto-detect if admin accidentally tried logging in here
+    if (cleanId.toLowerCase().includes('admin') || cleanId.toLowerCase().includes('quizemaster') || cleanId.toLowerCase() === 'info@fsudmc.com') {
+      const adminResult = dataService.loginAdmin(cleanId, cleanPass);
+      if (adminResult.success) {
+        navigate('/admin');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
-      const result = await dataService.loginStudent(studentId, passcode);
+      const result = await dataService.loginStudent(cleanId, cleanPass);
       setIsSubmitting(false);
 
       if (!result.success || !result.student) {
         if (result.technicalError) {
-          console.error('Technical Firebase Login Failure:', result.technicalError);
+          console.error('Technical Login Failure:', result.technicalError);
         }
         setError(result.error || 'विद्यार्थी ID वा पासकोड मिलेन।');
         return;
@@ -88,7 +101,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
                 required
                 autoComplete="username"
                 value={studentId}
-                onChange={e => setStudentId(e.target.value)}
+                onChange={e => setStudentId(fromNepaliDigits(e.target.value.trim()))}
                 placeholder="उदा. FSU25678 वा 9812345678 वा 25"
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-mono font-bold tracking-wide"
               />
@@ -120,7 +133,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
                 maxLength={4}
                 autoComplete="current-password"
                 value={passcode}
-                onChange={e => setPasscode(e.target.value.replace(/\D/g, ''))}
+                onChange={e => setPasscode(fromNepaliDigits(e.target.value).replace(/\D/g, ''))}
                 placeholder="••••"
                 className="w-full pl-10 pr-10 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-mono tracking-widest font-bold"
               />
@@ -135,14 +148,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
             </div>
           </div>
 
-          {/* Submit */}
+          {/* Submit Button */}
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow-md shadow-red-600/25 transition flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3.5 bg-red-600 hover:bg-red-700 disabled:opacity-70 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl shadow-md shadow-red-600/25 transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
           >
-            <span>लगइन गर्नुहोस्</span>
-            <ArrowRight className="w-4 h-4" />
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>लगइन हुँदैछ...</span>
+              </>
+            ) : (
+              <>
+                <span>लगइन गर्नुहोस्</span>
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </button>
 
           {/* Inside Login: Prominent Register Option */}
@@ -161,6 +183,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 <span>नयाँ विद्यार्थी दर्ता गर्नुहोस् (Register Now)</span>
+              </button>
+            </div>
+
+            <div className="pt-4 text-center">
+              <button
+                type="button"
+                onClick={() => navigate('/admin/login')}
+                className="text-slate-400 hover:text-slate-600 text-xs font-semibold inline-flex items-center gap-1.5 transition"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span>प्रशासक (Admin) लगइन पोर्टल</span>
               </button>
             </div>
           </div>

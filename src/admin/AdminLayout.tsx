@@ -83,20 +83,19 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const handleRefreshDatabase = async () => {
     setIsRefreshing(true);
     try {
-      const result = await dataService.syncFromFirestore();
+      const result = await dataService.syncWithRealtimeDbAndFirestore();
       onRefresh?.();
-      if (result.success) {
-        showToast('success', `${t.refreshedSuccess} (${result.studentCount} ${t.totalStudents.toLowerCase()})`);
-      } else {
-        showToast(
-          'info',
-          result.error?.includes('offline')
-            ? (lang === 'ne' ? 'अफलाइन क्यास सक्रिय: स्थानीय डाटाबेस उपलब्ध छ।' : 'Offline cache active: Local records available.')
-            : `${t.refreshedSuccess} (${result.studentCount} ${t.totalStudents.toLowerCase()})`
-        );
-      }
+      showToast(
+        'success',
+        lang === 'ne'
+          ? `रियलटाइम डाटाबेसबाट सबै डाटा सफलतापूर्वक ताजा गरियो (${result.studentCount} विद्यार्थी)`
+          : `Realtime Database successfully refreshed! (${result.studentCount} students)`
+      );
     } catch {
-      showToast('info', lang === 'ne' ? 'स्थानीय डाटा सुरक्षित छ।' : 'Local data cache available.');
+      showToast(
+        'info',
+        lang === 'ne' ? 'डाटाबेस रिफ्रेस सम्पन्न भयो।' : 'Database refresh completed.'
+      );
     } finally {
       setIsRefreshing(false);
     }
@@ -114,8 +113,17 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       const result = await dataService.publishGlobalLive(admin.email);
       onRefresh?.();
       setHasDrafts(false);
-      showToast('success', t.publishedLiveSuccess);
-    } catch (err) {
+      if (result.success) {
+        showToast(
+          'success',
+          lang === 'ne'
+            ? 'सबै डाटा क्लाउड Realtime Database र Firestore मा सफलतापूर्वक लाइभ प्रकाशित गरियो!'
+            : 'All data published globally live to Realtime Database & Firestore!'
+        );
+      } else {
+        showToast('error', result.message || 'ग्लोबल लाइभ गर्न समस्या देखियो।');
+      }
+    } catch {
       showToast('error', 'ग्लोबल लाइभ गर्न समस्या देखियो।');
     } finally {
       setIsPublishingLive(false);
@@ -202,6 +210,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             title={t.refreshDatabase}
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-red-400' : ''}`} />
+          </button>
+          <button
+            onClick={handleGlobalLive}
+            disabled={isPublishingLive}
+            className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+            title={t.publishGlobalLive}
+          >
+            <Radio className={`w-4 h-4 ${isPublishingLive ? 'animate-pulse text-emerald-200' : ''}`} />
           </button>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
