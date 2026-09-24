@@ -168,6 +168,23 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
     }
   };
 
+  const [isSyncingContestants, setIsSyncingContestants] = useState(false);
+
+  const handleSyncContestants = async () => {
+    setIsSyncingContestants(true);
+    try {
+      await dataService.fetchLatestWinnersAndSessionsFromFirestore();
+      onRefresh();
+      setPushNotice('ताजा सहभागी तथा विजेता डाटा ब्याकइन्डबाट सफलताका साथ लोड गरियो!');
+      setTimeout(() => setPushNotice(null), 4000);
+    } catch {
+      setPushNotice('डाटा लोड गर्दा समस्या आयो।');
+      setTimeout(() => setPushNotice(null), 4000);
+    } finally {
+      setIsSyncingContestants(false);
+    }
+  };
+
   const handleSaveCurrentWinnersList = () => {
     dataService.saveWinnersList(winners, 'admin@fsudmc.com');
     setSavedNotice(true);
@@ -288,6 +305,16 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
           >
             <Save className="w-4 h-4" />
             <span>विजेता सूची सुरक्षित राख्नुहोस्</span>
+          </button>
+
+          <button
+            onClick={handleSyncContestants}
+            disabled={isSyncingContestants}
+            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            title="सर्भरबाट पछिल्ला सहभागी तथा विजेता डाटा सिङ्क गर्नुहोस्"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncingContestants ? 'animate-spin text-amber-400' : ''}`} />
+            <span>{isSyncingContestants ? 'सिङ्क हुँदै...' : '🔄 सहभागी डाटा सिङ्क'}</span>
           </button>
 
           <button

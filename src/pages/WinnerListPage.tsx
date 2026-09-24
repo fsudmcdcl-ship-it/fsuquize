@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { WinnerRecord, QuizSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, formatDurationSeconds } from '../lib/nepaliUtils';
-import { Trophy, Award, Sparkles, Printer, Calendar, User, Search, Users, CheckCircle2 } from 'lucide-react';
+import { Trophy, Award, Sparkles, Printer, Calendar, User, Search, Users, CheckCircle2, RefreshCw, Radio } from 'lucide-react';
 import { WinnerPoster } from '../components/WinnerPoster';
 import { dataService } from '../lib/dataService';
 
@@ -14,6 +14,7 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
   const [selectedPosterRecord, setSelectedPosterRecord] = useState<WinnerRecord | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Subscribe to real-time data changes so frontend updates live when admin pushes
   useEffect(() => {
@@ -23,6 +24,20 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
     return unsub;
   }, []);
 
+  // Fetch latest winners and contestant sessions from Firestore on initial mount
+  useEffect(() => {
+    dataService.fetchLatestWinnersAndSessionsFromFirestore().catch(() => {});
+  }, []);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await dataService.fetchLatestWinnersAndSessionsFromFirestore();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const winners = dataService.getWinners().length > 0 ? dataService.getWinners() : initialWinners;
   const quizzes = dataService.getQuizzes();
   const latestWinner = winners[0];
@@ -30,10 +45,17 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
 
   const [selectedQuizId, setSelectedQuizId] = useState<string>(() => latestWinner?.quizId || quizzes[0]?.id || 'all');
 
+  // Keep selected quiz aligned with latest winner when updated via real-time stream
+  useEffect(() => {
+    if (latestWinner && (!selectedQuizId || selectedQuizId === 'all')) {
+      setSelectedQuizId(latestWinner.quizId);
+    }
+  }, [latestWinner?.quizId]);
+
   // Load participant submissions for the selected quiz (or all if 'all')
   const allSessions: QuizSession[] = dataService
     .getSessions(selectedQuizId === 'all' ? undefined : selectedQuizId)
-    .filter(s => s.status === 'submitted' || s.status === 'expired')
+    .filter(s => s.status === 'submitted' || s.status === 'expired' || (typeof s.score === 'number' && s.score >= 0 && Boolean(s.submittedAt)))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return a.timeTakenSeconds - b.timeTakenSeconds;
@@ -42,19 +64,25 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
   const filteredParticipants = allSessions.filter(s => {
     const q = searchTerm.toLowerCase();
     return (
-      s.studentName.toLowerCase().includes(q) ||
-      s.studentRoll.toLowerCase().includes(q) ||
-      s.studentClass.toLowerCase().includes(q)
+      (s.studentName || '').toLowerCase().includes(q) ||
+      (s.studentRoll || '').toLowerCase().includes(q) ||
+      (s.studentClass || '').toLowerCase().includes(q)
     );
   });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
       {/* Header */}
-      <div className="text-center max-w-2xl mx-auto space-y-2">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold uppercase tracking-wider">
-          <Trophy className="w-3.5 h-3.5 text-amber-600" />
-          <span>स्ववियु — दार्चुला बहुमुखी क्याम्पस (Darchula Multiple Campus)</span>
+      <div className="text-center max-w-2xl mx-auto space-y-3">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold uppercase tracking-wider">
+            <Trophy className="w-3.5 h-3.5 text-amber-600" />
+            <span>स्ववियु — दार्चुला बहुमुखी क्याम्पस (Darchula Multiple Campus)</span>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>प्रत्यक्ष लाइभ अपडेट सक्रिय</span>
+          </span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-slate-900">
           साप्ताहिक हाजिरी जवाफ विजेता सूची
@@ -62,6 +90,17 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
         <p className="text-sm text-slate-500">
           उत्कृष्ट ज्ञान र तीव्र गति प्रदर्शन गरी क्याम्पसमा प्रथम, दोस्रो र तेस्रो स्थान हासिल गर्ने मेधावी विद्यार्थीहरू।
         </p>
+
+        <div className="flex items-center justify-center pt-1">
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-red-600' : 'text-slate-500'}`} />
+            <span>{isRefreshing ? 'ताजा नतिजा लोड हुँदै...' : '🔄 ताजा नतिजा तथा सहभागी लोड गर्नुहोस् (Live Sync)'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Latest Quiz Winners Podium */}

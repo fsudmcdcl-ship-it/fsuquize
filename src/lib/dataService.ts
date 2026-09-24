@@ -36,14 +36,16 @@ import {
   deleteDoc,
   query,
   where,
+  onSnapshot,
 } from 'firebase/firestore';
 import { ref, get, child, update, set, onValue, remove } from 'firebase/database';
 import { signOut } from 'firebase/auth';
 import { fromNepaliDigits } from './nepaliUtils';
 
 // Global state flags to track Realtime Database /students access
-let isRtdbStudentsWritable = true;
-let isRtdbStudentsReadable = true;
+// Defaults to false so client writes use Firestore directly (avoids RTDB permission_denied warnings)
+let isRtdbStudentsWritable = false;
+let isRtdbStudentsReadable = false;
 
 export function disableRtdbStudentsAccess(reason?: string): void {
   if (isRtdbStudentsWritable || isRtdbStudentsReadable) {
@@ -220,6 +222,7 @@ class DataService {
     // Synchronize initial data from Realtime Database and Firestore
     if (typeof window !== 'undefined') {
       this.initRealtimeDbListeners();
+      this.initFirestoreRealtimeListeners();
       setTimeout(() => {
         this.syncFromRealtimeDb().catch(() => {});
         this.syncFromFirestore().catch(() => {});
@@ -451,6 +454,105 @@ class DataService {
   }
 
   /**
+   * Firestore real-time listeners for live winners, contestant submissions, and broadcast pushes
+   */
+  private isFirestoreListening = false;
+
+  private initFirestoreRealtimeListeners() {
+    if (this.isFirestoreListening || typeof window === 'undefined') return;
+    this.isFirestoreListening = true;
+
+    try {
+      // 1. Live Winners stream from Firestore
+      onSnapshot(
+        collection(firestoreDb, 'winners'),
+        snapshot => {
+          if (!snapshot.empty) {
+            const list: WinnerRecord[] = [];
+            snapshot.forEach(docSnap => {
+              const data = docSnap.data() as WinnerRecord;
+              if (data && data.quizId && !data.quizId.startsWith('__')) {
+                list.push(data);
+              }
+            });
+            list.sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+            if (list.length > 0) {
+              this.setStorage(STORAGE_KEYS.WINNERS, list);
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          console.debug('Firestore winners onSnapshot notice:', err);
+        }
+      );
+
+      // 2. Live Contestant Quiz Sessions stream from Firestore
+      onSnapshot(
+        collection(firestoreDb, 'quizSessions'),
+        snapshot => {
+          if (!snapshot.empty) {
+            const list: QuizSession[] = [];
+            snapshot.forEach(docSnap => {
+              const data = docSnap.data() as QuizSession;
+              if (data && data.id && !data.id.startsWith('__')) {
+                list.push(data);
+              }
+            });
+            if (list.length > 0) {
+              const currentSessions = this.getSessions();
+              const sMap = new Map<string, QuizSession>();
+              for (const s of currentSessions) sMap.set(s.id, s);
+              for (const s of list) {
+                if (s && s.id) sMap.set(s.id, s);
+              }
+              this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          console.debug('Firestore quizSessions onSnapshot notice:', err);
+        }
+      );
+
+      // 3. Live Broadcast Channel from Firestore (/liveBroadcast/current)
+      onSnapshot(
+        doc(firestoreDb, 'liveBroadcast', 'current'),
+        docSnap => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data) {
+              let changed = false;
+              if (Array.isArray(data.winners) && data.winners.length > 0) {
+                this.setStorage(STORAGE_KEYS.WINNERS, data.winners);
+                changed = true;
+              }
+              if (Array.isArray(data.sessions) && data.sessions.length > 0) {
+                const sMap = new Map<string, QuizSession>();
+                for (const s of this.getSessions()) sMap.set(s.id, s);
+                for (const s of data.sessions) {
+                  if (s && s.id) sMap.set(s.id, s);
+                }
+                this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+                changed = true;
+              }
+              if (changed) {
+                this.notifyListeners();
+              }
+            }
+          }
+        },
+        err => {
+          console.debug('Firestore liveBroadcast onSnapshot notice:', err);
+        }
+      );
+    } catch (err) {
+      console.debug('Firestore init listeners error:', err);
+    }
+  }
+
+  /**
    * One-time sync from Realtime Database on startup
    */
   async syncFromRealtimeDb(): Promise<void> {
@@ -575,13 +677,14 @@ class DataService {
   async registerStudent(params: {
     name: string;
     rollNo: string;
+    faculty?: 'Management' | 'Humanity' | 'Arts' | string;
     class: string;
     semester: string;
     phone: string;
     passcode: string;
     profilePhoto?: string;
   }): Promise<{ success: boolean; student?: Student; error?: string; technicalError?: string }> {
-    const students = this.getStudents();
+    let students = this.getStudents();
 
     const rollNoClean = fromNepaliDigits(params.rollNo.trim());
     const phoneClean = fromNepaliDigits(params.phone.trim()).replace(/\D/g, '');
@@ -600,21 +703,47 @@ class DataService {
       return { success: false, error: 'सम्पर्क नम्बर १० अंकको हुनुपर्छ।' };
     }
 
-    // Duplicate roll number check in local memory
-    if (students.some(s => s.rollNo.toLowerCase() === rollNoClean.toLowerCase() && s.class.toLowerCase() === params.class.toLowerCase())) {
-      return { success: false, error: 'यो रोल नम्बर र कक्षा पहिले नै दर्ता भइसकेको छ।' };
-    }
-
-    // Duplicate phone check
-    if (students.some(s => s.phone === phoneClean)) {
-      return { success: false, error: 'यो मोबाइल नम्बर पहिले नै प्रयोग भइसकेको छ।' };
-    }
-
     const studentId = this.generateStudentId(rollNoClean, phoneClean);
 
-    // Duplicate username check
-    if (students.some(s => s.id === studentId || s.username === studentId)) {
-      return { success: false, error: 'यो विद्यार्थी ID पहिले नै दर्ता छ।' };
+    // Rule: "when i reject someone's application then let them to create a new application 
+    // those who have tried to regester but that is not come in database erase them all data and let user to create a duplicate account without hesitation"
+    // Find any existing accounts matching this ID, phone, or roll+class
+    const matchingIds: string[] = [];
+    let hasApprovedAccount = false;
+
+    for (const s of students) {
+      const matchId = s.id.toUpperCase() === studentId.toUpperCase();
+      const matchPhone = s.phone === phoneClean;
+      const matchRoll = s.rollNo.toLowerCase() === rollNoClean.toLowerCase() && s.class.toLowerCase() === params.class.trim().toLowerCase();
+
+      if (matchId || matchPhone || matchRoll) {
+        if (s.status === 'approved' || s.status === 'active') {
+          hasApprovedAccount = true;
+          break;
+        } else {
+          // It was rejected or unapproved/pending - mark for complete erasure so user can create duplicate account without hesitation
+          matchingIds.push(s.id);
+        }
+      }
+    }
+
+    if (hasApprovedAccount) {
+      return {
+        success: false,
+        error: 'यो विद्यार्थी विवरण पहिले नै प्रशासनद्वारा स्वीकृत भइसकेको छ। कृपया सिधै लगइन गर्नुहोस्।'
+      };
+    }
+
+    // Erase all rejected, unapproved, or stuck registration attempts
+    if (matchingIds.length > 0) {
+      students = students.filter(s => !matchingIds.includes(s.id));
+      this.setStorage(STORAGE_KEYS.STUDENTS, students);
+      for (const oldId of matchingIds) {
+        deleteDoc(doc(firestoreDb, 'students', oldId)).catch(() => {});
+        if (isRtdbStudentsWritable) {
+          remove(ref(realtimeDb, `students/${safeRtdbKey(oldId)}`)).catch(() => {});
+        }
+      }
     }
 
     const authEmail = formatStudentAuthEmail(studentId);
@@ -627,7 +756,8 @@ class DataService {
       name: params.name.trim(),
       email: authEmail,
       rollNo: rollNoClean,
-      class: params.class,
+      faculty: params.faculty || 'Management',
+      class: params.class.trim(),
       semester: params.semester,
       phone: phoneClean,
       username: studentId,
@@ -649,7 +779,7 @@ class DataService {
     this.setCurrentStudent(newStudent);
     this.notifyListeners();
 
-    // 2. Concurrently initiate Firebase Auth, Firestore and Realtime Database
+    // 2. Concurrently initiate Firebase Auth and Firestore
     const authPromise = withTimeout(
       createStudentWithFirebase(studentId, rollNoClean, passcodeClean),
       3500,
@@ -687,6 +817,27 @@ class DataService {
     ]);
 
     return { success: true, student: newStudent };
+  }
+
+  /**
+   * Clears a rejected or aborted student application so they can re-register afresh
+   */
+  clearRejectedApplication(studentId: string): void {
+    if (!studentId) return;
+    let students = this.getStudents();
+    students = students.filter(s => s.id !== studentId);
+    this.setStorage(STORAGE_KEYS.STUDENTS, students);
+
+    const cur = this.getCurrentStudent();
+    if (cur && cur.id === studentId) {
+      this.logoutStudent();
+    }
+
+    deleteDoc(doc(firestoreDb, 'students', studentId)).catch(() => {});
+    if (isRtdbStudentsWritable) {
+      remove(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`)).catch(() => {});
+    }
+    this.notifyListeners();
   }
 
   async loginStudent(
@@ -2407,10 +2558,36 @@ class DataService {
 
   /**
    * Dedicated method to push both Winners and Participants (quizSessions) directly
-   * to Frontend Live (Realtime Database & Firestore) without any permission errors.
+   * to Frontend Live (Realtime Database & Firestore) with 100% resilience and instant reactivity.
    */
   async pushWinnersAndParticipantsToLive(adminEmail = 'admin@fsudmc.com'): Promise<{ success: boolean; message: string }> {
     try {
+      // 0. Fetch latest sessions from Firestore so that participant submissions made on other devices are merged
+      try {
+        const firestoreSessionsSnap = await withTimeout(
+          getDocs(collection(firestoreDb, 'quizSessions')).catch(() => null),
+          3000,
+          null
+        );
+        if (firestoreSessionsSnap && !firestoreSessionsSnap.empty) {
+          const freshSessions: QuizSession[] = [];
+          firestoreSessionsSnap.forEach(d => {
+            const data = d.data() as QuizSession;
+            if (data && data.id && !data.id.startsWith('__')) {
+              freshSessions.push(data);
+            }
+          });
+          if (freshSessions.length > 0) {
+            const sMap = new Map<string, QuizSession>();
+            for (const s of this.getSessions()) sMap.set(s.id, s);
+            for (const s of freshSessions) sMap.set(s.id, s);
+            this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+          }
+        }
+      } catch (e) {
+        console.debug('Pre-push sessions fetch notice:', e);
+      }
+
       const winners = this.getWinners();
       const sessions = this.getSessions();
 
@@ -2421,35 +2598,71 @@ class DataService {
       // 2. Prepare clean maps
       const winnersMap: Record<string, unknown> = {};
       for (const w of winners) {
-        winnersMap[w.quizId] = w;
+        if (w && w.quizId) {
+          winnersMap[w.quizId] = w;
+        }
       }
 
       const sessionsMap: Record<string, unknown> = {};
       for (const s of sessions) {
-        sessionsMap[s.id] = s;
+        if (s && s.id) {
+          sessionsMap[s.id] = s;
+        }
       }
 
-      // 3. Realtime Database writes to child paths (winners and quizSessions)
-      const rtdbWrites = [
-        set(ref(realtimeDb, 'winners'), stripUndefinedDeep(winnersMap)).catch(() => null),
-        set(ref(realtimeDb, 'quizSessions'), stripUndefinedDeep(sessionsMap)).catch(() => null),
-        set(ref(realtimeDb, 'syncMeta/lastWinnersPublishedAt'), new Date().toISOString()).catch(() => null),
+      // 3. Firestore writes:
+      // a) Dedicated live broadcast document so all frontend clients receive full dataset instantaneously
+      const firestoreWrites: Promise<unknown>[] = [
+        setDoc(
+          doc(firestoreDb, 'liveBroadcast', 'current'),
+          stripUndefinedDeep({
+            winners,
+            sessions,
+            publishedAt: new Date().toISOString(),
+            adminEmail,
+            version: Date.now(),
+          }),
+          { merge: true }
+        ).catch(err => {
+          console.debug('liveBroadcast doc write notice:', err);
+          return null;
+        })
       ];
 
-      // 4. Firestore writes
-      const firestoreWrites: Promise<unknown>[] = [];
+      // b) Individual winners docs
       for (const w of winners) {
-        firestoreWrites.push(
-          setDoc(doc(firestoreDb, 'winners', w.quizId), stripUndefinedDeep(w), { merge: true }).catch(() => null)
-        );
+        if (w && w.quizId) {
+          firestoreWrites.push(
+            setDoc(doc(firestoreDb, 'winners', w.quizId), stripUndefinedDeep(w), { merge: true }).catch(() => null)
+          );
+        }
       }
+
+      // c) Individual session docs
       for (const s of sessions) {
-        firestoreWrites.push(
-          setDoc(doc(firestoreDb, 'quizSessions', s.id), stripUndefinedDeep(s), { merge: true }).catch(() => null)
+        if (s && s.id) {
+          firestoreWrites.push(
+            setDoc(doc(firestoreDb, 'quizSessions', s.id), stripUndefinedDeep(s), { merge: true }).catch(() => null)
+          );
+        }
+      }
+
+      // 4. Realtime Database writes (fail-safe and guarded)
+      const rtdbWrites: Promise<unknown>[] = [];
+      if (isRtdbStudentsWritable) {
+        rtdbWrites.push(
+          set(ref(realtimeDb, 'winners'), stripUndefinedDeep(winnersMap)).catch(() => null),
+          set(ref(realtimeDb, 'quizSessions'), stripUndefinedDeep(sessionsMap)).catch(() => null),
+          set(ref(realtimeDb, 'liveBroadcast/current'), stripUndefinedDeep({
+            winners,
+            sessions,
+            publishedAt: new Date().toISOString(),
+          })).catch(() => null),
+          set(ref(realtimeDb, 'syncMeta/lastWinnersPublishedAt'), new Date().toISOString()).catch(() => null)
         );
       }
 
-      await withTimeout(Promise.allSettled([...rtdbWrites, ...firestoreWrites]), 4000, []);
+      await withTimeout(Promise.allSettled([...firestoreWrites, ...rtdbWrites]), 6000, []);
 
       this.addAuditLog({
         adminEmail,
@@ -2472,6 +2685,91 @@ class DataService {
     }
   }
 
+  /**
+   * Dedicated fetcher to force a fresh load of winners and contestants from Firestore
+   */
+  async fetchLatestWinnersAndSessionsFromFirestore(): Promise<{ winners: WinnerRecord[]; sessions: QuizSession[] }> {
+    try {
+      const [winnersSnap, sessionsSnap, broadcastSnap] = await Promise.all([
+        getDocs(collection(firestoreDb, 'winners')).catch(() => null),
+        getDocs(collection(firestoreDb, 'quizSessions')).catch(() => null),
+        getDoc(doc(firestoreDb, 'liveBroadcast', 'current')).catch(() => null),
+      ]);
+
+      let winnersChanged = false;
+      let sessionsChanged = false;
+
+      // 1. Process broadcast doc if available
+      if (broadcastSnap && broadcastSnap.exists()) {
+        const bData = broadcastSnap.data();
+        if (bData) {
+          if (Array.isArray(bData.winners) && bData.winners.length > 0) {
+            this.setStorage(STORAGE_KEYS.WINNERS, bData.winners);
+            winnersChanged = true;
+          }
+          if (Array.isArray(bData.sessions) && bData.sessions.length > 0) {
+            const sMap = new Map<string, QuizSession>();
+            for (const s of this.getSessions()) sMap.set(s.id, s);
+            for (const s of bData.sessions) {
+              if (s && s.id) sMap.set(s.id, s);
+            }
+            this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+            sessionsChanged = true;
+          }
+        }
+      }
+
+      // 2. Process individual winners docs
+      if (winnersSnap && !winnersSnap.empty) {
+        const wList: WinnerRecord[] = [];
+        winnersSnap.forEach(d => {
+          const w = d.data() as WinnerRecord;
+          if (w && w.quizId && !w.quizId.startsWith('__')) {
+            wList.push(w);
+          }
+        });
+        wList.sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+        if (wList.length > 0) {
+          this.setStorage(STORAGE_KEYS.WINNERS, wList);
+          winnersChanged = true;
+        }
+      }
+
+      // 3. Process individual session docs
+      if (sessionsSnap && !sessionsSnap.empty) {
+        const sList: QuizSession[] = [];
+        sessionsSnap.forEach(d => {
+          const s = d.data() as QuizSession;
+          if (s && s.id && !s.id.startsWith('__')) {
+            sList.push(s);
+          }
+        });
+        if (sList.length > 0) {
+          const sMap = new Map<string, QuizSession>();
+          for (const s of this.getSessions()) sMap.set(s.id, s);
+          for (const s of sList) if (s && s.id) sMap.set(s.id, s);
+          this.setStorage(STORAGE_KEYS.SESSIONS, Array.from(sMap.values()));
+          sessionsChanged = true;
+        }
+      }
+
+      if (winnersChanged || sessionsChanged) {
+        this.notifyListeners();
+      }
+
+      return {
+        winners: this.getWinners(),
+        sessions: this.getSessions(),
+      };
+    } catch (err) {
+      console.debug('fetchLatestWinnersAndSessionsFromFirestore notice:', err);
+      return {
+        winners: this.getWinners(),
+        sessions: this.getSessions(),
+      };
+    }
+  }
+
   publishWinners(winnerRecord: WinnerRecord, adminEmail = 'admin'): void {
     const winners = this.getWinners();
     const idx = winners.findIndex(w => w.quizId === winnerRecord.quizId);
@@ -2481,6 +2779,7 @@ class DataService {
       winners.unshift(winnerRecord);
     }
     this.saveWinnersList(winners, adminEmail);
+    this.pushWinnersAndParticipantsToLive(adminEmail).catch(() => {});
   }
 
   addWinner(winnerRecord: WinnerRecord, adminEmail = 'admin'): void {
@@ -2492,6 +2791,10 @@ class DataService {
     winners = winners.filter(w => w.quizId !== quizId);
     this.setStorage(STORAGE_KEYS.WINNERS, winners);
     deleteDoc(doc(firestoreDb, 'winners', quizId)).catch(() => {});
+    if (isRtdbStudentsWritable) {
+      remove(ref(realtimeDb, `winners/${quizId}`)).catch(() => {});
+    }
+    this.pushWinnersAndParticipantsToLive(adminEmail).catch(() => {});
     this.notifyListeners();
   }
 

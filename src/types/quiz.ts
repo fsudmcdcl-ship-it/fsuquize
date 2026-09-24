@@ -25,7 +25,8 @@ export interface Student {
   name: string;
   email?: string;
   rollNo: string;
-  class: string; // e.g., BCA, BBS, B.Sc.CSIT, B.Ed
+  faculty?: 'Management' | 'Humanity' | 'Arts' | string;
+  class: string; // e.g., BBS 1st Year, BA 2nd Year, etc. (filled by student themselves)
   semester: string; // e.g., प्रथम, दोस्रो, तेस्रो, etc.
   phone: string;
   username: string; // e.g., FSU25678

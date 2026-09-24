@@ -11,8 +11,9 @@ interface RegisterPageProps {
 
 export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentRegistered }) => {
   const [name, setName] = useState('');
-  const [studentClass, setStudentClass] = useState('BCA');
-  const [semester, setSemester] = useState('प्रथम');
+  const [faculty, setFaculty] = useState<'Management' | 'Humanity' | 'Arts'>('Management');
+  const [studentClass, setStudentClass] = useState('BBS 1st Year');
+  const [semester, setSemester] = useState('प्रथम वर्ष / Semester');
   const [rollNo, setRollNo] = useState('');
   const [phone, setPhone] = useState('');
   const [passcode, setPasscode] = useState('');
@@ -112,6 +113,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
       setError('कृपया रोल नम्बर प्रविष्ट गर्नुहोस्।');
       return;
     }
+    if (!studentClass.trim()) {
+      setError('कृपया आफ्नो कक्षा आफै प्रविष्ट गर्नुहोस्।');
+      return;
+    }
     if (!normPhone || normPhone.length !== 10 || !/^\d{10}$/.test(normPhone)) {
       setError('क्याम्पस सम्पर्क नम्बर १० अंकको हुनुपर्छ।');
       return;
@@ -131,7 +136,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
       const result = await dataService.registerStudent({
         name: name.trim(),
         rollNo: normRoll,
-        class: studentClass,
+        faculty,
+        class: studentClass.trim(),
         semester,
         phone: normPhone,
         passcode: normPass,
@@ -184,7 +190,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
             <div className="text-3xl font-black text-red-600 font-mono tracking-wider">
               {registrationSuccess.id}
             </div>
-            <p className="text-xs text-slate-600 mt-2">
+            <div className="mt-2 pt-2 border-t border-slate-200/80 text-xs text-slate-600 flex items-center justify-center gap-3">
+              <span>संकाय: <b className="text-slate-800">{registrationSuccess.faculty || 'व्यवस्थापन'}</b></span>
+              <span>•</span>
+              <span>कक्षा: <b className="text-slate-800">{registrationSuccess.class}</b></span>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
               यो ID र आफ्नो ४-अंकको पिन प्रयोग गरेर भविष्यमा लगइन गर्न सकिन्छ।
             </p>
           </div>
@@ -307,44 +318,114 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
             />
           </div>
 
-          {/* Class & Semester */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                कक्षा / संकाय (Class) *
-              </label>
-              <select
-                value={studentClass}
-                onChange={e => setStudentClass(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium bg-white"
-              >
-                <option value="BCA">BCA (कम्प्युटर एप्लिकेसन)</option>
-                <option value="B.Sc.CSIT">B.Sc.CSIT (कम्प्युटर साइन्स)</option>
-                <option value="BBS">BBS (व्यवस्थापन)</option>
-                <option value="B.Ed">B.Ed (शिक्षाशास्त्र)</option>
-                <option value="BA">BA (मानविकी)</option>
-                <option value="MBS">MBS (स्नातकोत्तर)</option>
-              </select>
+          {/* Faculty (संकाय) Selection */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              संकाय (Faculty) *
+            </label>
+            <div className="grid grid-cols-3 gap-2.5">
+              {[
+                { id: 'Management', name: 'व्यवस्थापन', en: 'Management', icon: '💼' },
+                { id: 'Humanity', name: 'मानविकी', en: 'Humanities', icon: '📖' },
+                { id: 'Arts', name: 'कला', en: 'Arts', icon: '🎨' },
+              ].map(f => {
+                const isSelected = faculty === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      setFaculty(f.id as any);
+                      if (f.id === 'Management') setStudentClass('BBS 1st Year');
+                      else if (f.id === 'Humanity') setStudentClass('BA 1st Year');
+                      else setStudentClass('Arts 1st Year');
+                    }}
+                    className={`py-3 px-3 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
+                      isSelected
+                        ? 'border-red-500 bg-red-50/70 text-red-700 ring-2 ring-red-400 font-bold shadow-xs'
+                        : 'border-slate-200 bg-slate-50/70 text-slate-700 hover:bg-slate-100 font-medium'
+                    }`}
+                  >
+                    <span className="text-xl">{f.icon}</span>
+                    <span className="text-xs font-bold">{f.name}</span>
+                    <span className="text-[10px] text-slate-400">({f.en})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Under Faculty: Class (Self-filled by student) & Semester */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>कक्षा (Class / Program) *</span>
+                  <span className="text-[10px] text-slate-400 lowercase font-normal">आफै लेख्नुहोस्</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={studentClass}
+                  onChange={e => setStudentClass(e.target.value)}
+                  placeholder={
+                    faculty === 'Management'
+                      ? 'उदा. BBS 1st Year, BBA, MBS'
+                      : faculty === 'Humanity'
+                      ? 'उदा. BA 1st Year, MA, आदि'
+                      : 'उदा. Arts 1st Year, कक्षा ११ Arts'
+                  }
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  सेमेस्टर / वर्ष (Semester / Year) *
+                </label>
+                <select
+                  value={semester}
+                  onChange={e => setSemester(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium bg-white"
+                >
+                  <option value="प्रथम वर्ष / Semester">प्रथम (1st Year / Semester)</option>
+                  <option value="दोस्रो वर्ष / Semester">दोस्रो (2nd Year / Semester)</option>
+                  <option value="तेस्रो वर्ष / Semester">तेस्रो (3rd Year / Semester)</option>
+                  <option value="चौथो वर्ष / Semester">चौथो (4th Year / Semester)</option>
+                  <option value="पाँचौं Semester">पाँचौं Semester</option>
+                  <option value="छैटौं Semester">छैटौं Semester</option>
+                  <option value="सातौं Semester">सातौं Semester</option>
+                  <option value="आठौं Semester">आठौं Semester</option>
+                </select>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                सेमेस्टर / वर्ष (Semester) *
-              </label>
-              <select
-                value={semester}
-                onChange={e => setSemester(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium bg-white"
-              >
-                <option value="प्रथम">प्रथम (1st Semester)</option>
-                <option value="दोस्रो">दोस्रो (2nd Semester)</option>
-                <option value="तेस्रो">तेस्रो (3rd Semester)</option>
-                <option value="चौथो">चौथो (4th Semester)</option>
-                <option value="पाँचौं">पाँचौं (5th Semester)</option>
-                <option value="छैटौं">छैटौं (6th Semester)</option>
-                <option value="सातौं">सातौं (7th Semester)</option>
-                <option value="आठौं">आठौं (8th Semester)</option>
-              </select>
+            {/* Quick Suggestion Chips to help user fill easily */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-400 mr-1">
+                  द्रुत चयन (Quick Suggestions):
+                </span>
+                {(faculty === 'Management'
+                  ? ['BBS 1st Year', 'BBS 2nd Year', 'BBS 3rd Year', 'BBS 4th Year', 'BBA', 'MBS']
+                  : faculty === 'Humanity'
+                  ? ['BA 1st Year', 'BA 2nd Year', 'BA 3rd Year', 'BA 4th Year', 'MA']
+                  : ['Arts 1st Year', 'Arts 2nd Year', 'कक्षा ११ (Arts)', 'कक्षा १२ (Arts)', 'BFA']
+                ).map(chip => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => setStudentClass(chip)}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition cursor-pointer ${
+                      studentClass === chip
+                        ? 'bg-red-600 border-red-600 text-white font-bold shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

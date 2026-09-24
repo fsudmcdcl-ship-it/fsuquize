@@ -414,8 +414,15 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
                     </td>
 
                     <td className="py-3 px-4">
-                      <span className="font-semibold text-slate-800">{student.class}</span>
-                      <span className="text-slate-400 text-[11px] block">({student.semester})</span>
+                      <span className="font-bold text-slate-900 block">{student.class}</span>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        {student.faculty && (
+                          <span className="px-1.5 py-0.2 rounded-sm bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
+                            {student.faculty}
+                          </span>
+                        )}
+                        <span className="text-slate-400 text-[11px]">({student.semester})</span>
+                      </div>
                     </td>
 
                     <td className="py-3 px-4 font-bold text-slate-800">
@@ -833,7 +840,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, onRefres
                 <h3 className="text-xl font-black text-slate-900">{previewPhotoStudent.name}</h3>
                 <p className="text-xs text-red-600 font-mono font-bold mt-0.5">ID: {previewPhotoStudent.id}</p>
                 <p className="text-xs text-slate-600 mt-1">
-                  रोल {toNepaliDigits(previewPhotoStudent.rollNo)} | {previewPhotoStudent.class} ({previewPhotoStudent.semester})
+                  {previewPhotoStudent.faculty ? `${previewPhotoStudent.faculty} • ` : ''}{previewPhotoStudent.class} ({previewPhotoStudent.semester}) | रोल {toNepaliDigits(previewPhotoStudent.rollNo)}
                 </p>
                 <p className="text-xs text-slate-500 font-mono mt-0.5">सम्पर्क: {previewPhotoStudent.phone}</p>
                 <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold">

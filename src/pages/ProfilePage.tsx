@@ -181,7 +181,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-            <span className="text-slate-400 block font-medium">कक्षा / संकाय</span>
+            <span className="text-slate-400 block font-medium">संकाय (Faculty)</span>
+            <span className="text-sm font-bold text-slate-800 mt-1 block">{student.faculty || 'व्यवस्थापन'}</span>
+          </div>
+
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+            <span className="text-slate-400 block font-medium">कक्षा (Class)</span>
             <span className="text-sm font-bold text-slate-800 mt-1 block">{student.class}</span>
           </div>
 

@@ -19,6 +19,8 @@ import {
   ZoomIn,
   X,
   Camera,
+  FileEdit,
+  XCircle,
 } from 'lucide-react';
 
 interface AccountPendingPageProps {
@@ -159,7 +161,11 @@ export const AccountPendingPage: React.FC<AccountPendingPageProps> = ({
     <div className="max-w-2xl mx-auto px-4 py-8 sm:py-12">
       <div className="bg-white rounded-3xl border border-amber-200/80 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Banner Header with Student Photo */}
-        <div className="bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white p-6 sm:p-8 text-center relative overflow-hidden">
+        <div className={`text-white p-6 sm:p-8 text-center relative overflow-hidden transition-colors duration-300 ${
+          statusType === 'rejected' || student.status === 'rejected'
+            ? 'bg-gradient-to-br from-red-600 via-rose-700 to-red-800'
+            : 'bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700'
+        }`}>
           <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full pointer-events-none" />
 
           {/* Student Submitted Profile Photo Display */}
@@ -193,17 +199,33 @@ export const AccountPendingPage: React.FC<AccountPendingPageProps> = ({
             )}
           </div>
 
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 backdrop-blur-md text-amber-100 font-bold text-xs rounded-full uppercase tracking-wider mb-2">
-            <Clock className="w-3.5 h-3.5 animate-spin" />
-            <span>Status: Pending Approval (स्वीकृति प्रतीक्षामा)</span>
-          </span>
-
-          <h1 className="text-2xl sm:text-3xl font-black">
-            खाता प्रशासकीय स्वीकृतिको पर्खाइमा छ
-          </h1>
-          <p className="text-amber-100 text-xs sm:text-sm mt-2 max-w-lg mx-auto">
-            स्वतन्त्र विद्यार्थी युनियन, दार्चुला बहुमुखी क्याम्पस (Darchula Multiple Campus)
-          </p>
+          {statusType === 'rejected' || student.status === 'rejected' ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 px-3.5 py-1 bg-red-900/60 backdrop-blur-md text-red-100 font-bold text-xs rounded-full uppercase tracking-wider mb-2 border border-red-300/30">
+                <XCircle className="w-3.5 h-3.5 text-red-200" />
+                <span>Status: Application Rejected (आवेदन अस्वीकृत)</span>
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-black">
+                आवेदन प्रशासनद्वारा अस्वीकृत गरियो
+              </h1>
+              <p className="text-rose-100 text-xs sm:text-sm mt-2 max-w-lg mx-auto">
+                तपाईंको आवेदन अस्वीकृत भएको छ। आवश्यक विवरण वा कागजात सच्याएर तपाईं तुरुन्तै नयाँ आवेदन दर्ता गर्न सक्नुहुन्छ।
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 backdrop-blur-md text-amber-100 font-bold text-xs rounded-full uppercase tracking-wider mb-2">
+                <Clock className="w-3.5 h-3.5 animate-spin" />
+                <span>Status: Pending Approval (स्वीकृति प्रतीक्षामा)</span>
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-black">
+                खाता प्रशासकीय स्वीकृतिको पर्खाइमा छ
+              </h1>
+              <p className="text-amber-100 text-xs sm:text-sm mt-2 max-w-lg mx-auto">
+                स्वतन्त्र विद्यार्थी युनियन, दार्चुला बहुमुखी क्याम्पस (Darchula Multiple Campus)
+              </p>
+            </>
+          )}
         </div>
 
         {/* Content Body */}
@@ -307,9 +329,9 @@ export const AccountPendingPage: React.FC<AccountPendingPageProps> = ({
               <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-xl">
                 <GraduationCap className="w-4 h-4 text-slate-400 shrink-0" />
                 <div>
-                  <span className="text-slate-400 block text-[10px]">रोल नम्बर र कक्षा</span>
+                  <span className="text-slate-400 block text-[10px]">संकाय, कक्षा र रोल</span>
                   <span className="font-bold text-slate-800">
-                    रोल {toNepaliDigits(student.rollNo)} ({student.class} - {student.semester})
+                    {student.faculty ? `${student.faculty} • ` : ''}{student.class} ({student.semester}) - रोल {toNepaliDigits(student.rollNo)}
                   </span>
                 </div>
               </div>
@@ -336,14 +358,27 @@ export const AccountPendingPage: React.FC<AccountPendingPageProps> = ({
 
           {/* Action Buttons */}
           <div className="space-y-3 pt-2">
-            <button
-              onClick={handleCheckStatus}
-              disabled={checking}
-              className="w-full py-3.5 px-4 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-            >
-              <RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />
-              <span>{checking ? 'स्थिति जाँच्दै...' : 'स्थिति पुनः जाँच्नुहोस् (Check Approval Status)'}</span>
-            </button>
+            {statusType === 'rejected' || student.status === 'rejected' ? (
+              <button
+                onClick={() => {
+                  dataService.clearRejectedApplication(student.id);
+                  navigate('/register');
+                }}
+                className="w-full py-4 px-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 active:from-red-800 text-white font-black text-sm rounded-xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <FileEdit className="w-5 h-5" />
+                <span>📝 पुनः नयाँ आवेदन भर्नुहोस् (Fill New Application)</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleCheckStatus}
+                disabled={checking}
+                className="w-full py-3.5 px-4 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                <RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />
+                <span>{checking ? 'स्थिति जाँच्दै...' : 'स्थिति पुनः जाँच्नुहोस् (Check Approval Status)'}</span>
+              </button>
+            )}
 
             <button
               onClick={onLogout}

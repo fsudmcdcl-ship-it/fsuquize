@@ -5,8 +5,8 @@ import type { DeviceSession, Student } from "../types/quiz";
 
 const DEVICE_ID_KEY = "fsudmc_client_device_id";
 
-// Track whether RTDB activeSessions is writable
-let isRtdbSessionSyncEnabled = true;
+// Track whether RTDB activeSessions is writable (defaults to false to prevent permission_denied warnings on unauthenticated RTDB)
+let isRtdbSessionSyncEnabled = false;
 
 export function disableRtdbSessionSync(reason?: string) {
   if (isRtdbSessionSyncEnabled) {

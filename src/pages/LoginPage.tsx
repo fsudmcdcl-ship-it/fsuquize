@@ -56,7 +56,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
       }
 
       onStudentLoggedIn(result.student);
-      if (result.student.status === 'pending') {
+      if (result.student.status === 'pending' || result.student.status === 'rejected') {
         navigate('/pending');
       } else {
         navigate('/dashboard');
