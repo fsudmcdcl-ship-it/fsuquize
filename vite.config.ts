@@ -85,6 +85,11 @@ function githubPagesSpaRoutesPlugin(): Plugin {
 export default defineConfig(() => {
   return {
     base: '/',
+    define: {
+      'import.meta.env.VITE_FIREBASE_DATABASE_URL': JSON.stringify(
+        'https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app'
+      ),
+    },
     plugins: [react(), tailwindcss(), githubPagesSpaRoutesPlugin()],
     resolve: {
       alias: {

@@ -39,16 +39,34 @@ import {
   type Database
 } from "firebase/database";
 
-// Web app's Firebase configuration provided by user
+// Sanitizers to prevent invalid formatting (such as accidental markdown brackets or quotes in environment variables)
+function sanitizeUrl(raw?: string, fallback: string = "https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app"): string {
+  if (!raw) return fallback;
+  const str = String(raw).trim();
+  const match = str.match(/https?:\/\/[a-zA-Z0-9.\-_]+(?:\.firebasedatabase\.app|\.firebaseio\.com)/);
+  if (match) return match[0];
+  const cleaned = str.replace(/[\[\]\(\)'"`]/g, "").trim();
+  if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) {
+    return cleaned;
+  }
+  return fallback;
+}
+
+function sanitizeString(raw?: string, fallback: string = ""): string {
+  if (!raw) return fallback;
+  return String(raw).trim().replace(/[\[\]\(\)'"`]/g, "").trim() || fallback;
+}
+
+// Web app's Firebase configuration with strict URL sanitization
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "quize-c3025.firebaseapp.com",
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "quize-c3025",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "quize-c3025.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "62815879515",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:62815879515:web:8de7b15748cf6ff22a9a7e",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-XHX6RBHH12",
+  apiKey: sanitizeString(import.meta.env.VITE_FIREBASE_API_KEY, "AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o"),
+  authDomain: sanitizeString(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN, "quize-c3025.firebaseapp.com"),
+  databaseURL: sanitizeUrl(import.meta.env.VITE_FIREBASE_DATABASE_URL, "https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app"),
+  projectId: sanitizeString(import.meta.env.VITE_FIREBASE_PROJECT_ID, "quize-c3025"),
+  storageBucket: sanitizeString(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET, "quize-c3025.firebasestorage.app"),
+  messagingSenderId: sanitizeString(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID, "62815879515"),
+  appId: sanitizeString(import.meta.env.VITE_FIREBASE_APP_ID, "1:62815879515:web:8de7b15748cf6ff22a9a7e"),
+  measurementId: sanitizeString(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID, "G-XHX6RBHH12"),
 };
 
 // Initialize Firebase App
@@ -103,7 +121,20 @@ if (typeof window !== "undefined") {
 
 // Initialize other Firebase services
 export const auth: Auth = getAuth(app);
-export const realtimeDb: Database = getDatabase(app);
+
+let rtdbInstance: Database;
+try {
+  rtdbInstance = getDatabase(app, firebaseConfig.databaseURL);
+} catch (err) {
+  console.warn("Realtime Database initialization fallback:", err);
+  try {
+    rtdbInstance = getDatabase(app, "https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app");
+  } catch {
+    rtdbInstance = getDatabase(app);
+  }
+}
+export const realtimeDb: Database = rtdbInstance;
+
 export const firebaseStorage: FirebaseStorage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });

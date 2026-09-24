@@ -53,6 +53,10 @@ export function detectDeviceName(): string {
  * 3. Registers or updates an active session for the student on this device.
  * Syncs to both Realtime Database (for instant presence/state) and Firestore (persistent document).
  */
+function sanitizePathKey(val: string): string {
+  return String(val || "").replace(/[.#$\[\]/]/g, "_");
+}
+
 export async function registerDeviceSession(
   studentId: string
 ): Promise<DeviceSession> {
@@ -60,6 +64,9 @@ export async function registerDeviceSession(
   const deviceName = detectDeviceName();
   const nowMs = Date.now();
   const nowIso = new Date().toISOString();
+
+  const safeStudentKey = sanitizePathKey(studentId);
+  const safeDeviceKey = sanitizePathKey(deviceId);
 
   const sessionData: DeviceSession = {
     deviceId,
@@ -73,7 +80,7 @@ export async function registerDeviceSession(
 
   try {
     // A. Sync to Realtime Database with automatic disconnection cleanup
-    const rtdbSessionRef = ref(realtimeDb, `students/${studentId}/activeSessions/${deviceId}`);
+    const rtdbSessionRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions/${safeDeviceKey}`);
     await set(rtdbSessionRef, {
       ...sessionData,
       lastActive: nowMs,
@@ -108,10 +115,12 @@ export async function registerDeviceSession(
  */
 export async function logoutDeviceSession(studentId: string): Promise<void> {
   const deviceId = getOrCreateDeviceId();
+  const safeStudentKey = sanitizePathKey(studentId);
+  const safeDeviceKey = sanitizePathKey(deviceId);
 
   try {
     // A. Remove device session from Realtime Database
-    const rtdbSessionRef = ref(realtimeDb, `students/${studentId}/activeSessions/${deviceId}`);
+    const rtdbSessionRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions/${safeDeviceKey}`);
     await remove(rtdbSessionRef);
 
     // B. Remove device session from Firestore activeSessions map
@@ -131,9 +140,10 @@ export async function fetchActiveSessions(
   studentId: string
 ): Promise<DeviceSession[]> {
   const currentDeviceId = getOrCreateDeviceId();
+  const safeStudentKey = sanitizePathKey(studentId);
   try {
     // Try Realtime Database first for instant state
-    const rtdbRef = ref(realtimeDb, `students/${studentId}/activeSessions`);
+    const rtdbRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions`);
     const snap = await get(rtdbRef);
     if (snap.exists()) {
       const data = snap.val() as Record<string, DeviceSession>;

@@ -64,11 +64,16 @@ export function isOfflineOrUnavailableError(err: unknown): boolean {
   return (
     msg.includes('offline') ||
     msg.includes('client is offline') ||
+    msg.includes('failed to get document') ||
     msg.includes('unavailable') ||
     msg.includes('failed-precondition') ||
     msg.includes('network-request-failed') ||
     msg.includes('could not reach cloud firestore backend')
   );
+}
+
+export function safeRtdbKey(key: string): string {
+  return String(key || '').trim().replace(/[.#$\[\]/]/g, '_');
 }
 
 const STORAGE_KEYS = {
@@ -806,7 +811,7 @@ class DataService {
       updatedAt: students[idx].updatedAt
     }).catch(err => console.warn('Firestore updateStudentStatus warning:', err));
 
-    update(ref(realtimeDb, `students/${studentId}`), {
+    update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
       status,
       updatedAt: students[idx].updatedAt,
     }).catch(() => {});
@@ -871,7 +876,7 @@ class DataService {
         console.debug('Firestore deleteStudent notice:', err);
       }
     });
-    remove(ref(realtimeDb, `students/${studentId}`)).catch(() => {});
+    remove(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`)).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -898,30 +903,7 @@ class DataService {
         updatedAt: now,
       };
 
-      // 1. Await confirmation from Firestore (gracefully handling offline)
-      try {
-        await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
-        const student = this.getStudents().find(s => s.id === studentId);
-        if (student?.uid && student.uid !== studentId) {
-          await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
-        }
-      } catch (err) {
-        if (!isOfflineOrUnavailableError(err)) {
-          console.debug('Firestore approve sync notice:', err);
-        }
-      }
-
-      // 2. Update Realtime DB
-      update(ref(realtimeDb, `students/${studentId}`), {
-        ...updates,
-        status: 'approved',
-      }).catch(err => {
-        if (!isOfflineOrUnavailableError(err)) {
-          console.debug('Realtime DB approve notice:', err);
-        }
-      });
-
-      // 3. Update local cache
+      // 1. INSTANT OPTIMISTIC UPDATE: Update local cache and state immediately
       const students = this.getStudents();
       const idx = students.findIndex(s => s.id === studentId);
       let updatedStudent: Student | undefined;
@@ -932,25 +914,30 @@ class DataService {
         };
         updatedStudent = students[idx];
         this.setStorage(STORAGE_KEYS.STUDENTS, students);
+      } else {
+        updatedStudent = {
+          id: studentId,
+          name: studentId,
+          rollNo: '',
+          class: '',
+          semester: '',
+          phone: '',
+          username: studentId,
+          createdAt: now,
+          ...updates,
+        } as Student;
       }
 
-      // If current student session matches, update session
+      // If current student session matches, update session immediately
       const cur = this.getCurrentStudent();
       if (cur && cur.id === studentId) {
         this.setCurrentStudent({ ...cur, ...updates });
       }
 
-      // 4. Send in-app notification to this specific student
-      this.sendNotification({
-        title: 'खाता सफलतापूर्वक स्वीकृत भयो (Account Approved)',
-        message: `नमस्ते ${updatedStudent?.name || ''}! तपाईंको विद्यार्थी खाता (ID: ${studentId}) प्रशासकद्वारा स्वीकृत गरिएको छ। अब तपाईं साप्ताहिक क्विजमा सहभागी हुन सक्नुहुन्छ।`,
-        targetType: 'specific',
-        targetStudentId: studentId,
-        targetStudentName: updatedStudent?.name || studentId,
-        type: 'success',
-        adminEmail,
-      }).catch(() => {});
+      // Notify UI listeners immediately so UI changes in 0ms!
+      this.notifyListeners();
 
+      // Record audit log
       this.addAuditLog({
         adminEmail,
         action: 'विद्यार्थी आवेदन स्वीकृत (Approved)',
@@ -958,7 +945,58 @@ class DataService {
         details: `विद्यार्थी ${updatedStudent?.name || studentId} को खाता स्वीकृत गरियो`
       });
 
-      this.notifyListeners();
+      // 2. Non-blocking asynchronous sync to Firestore & Realtime Database
+      const syncBackend = async () => {
+        // Firestore sync
+        try {
+          await withTimeout(
+            setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true }),
+            3000,
+            undefined
+          );
+          if (updatedStudent?.uid && updatedStudent.uid !== studentId) {
+            await withTimeout(
+              setDoc(doc(firestoreDb, 'students', updatedStudent.uid), updates, { merge: true }),
+              3000,
+              undefined
+            ).catch(() => {});
+          }
+        } catch (err) {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('Firestore approve sync notice:', err);
+          }
+        }
+
+        // Realtime DB sync
+        try {
+          await update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+            ...updates,
+            status: 'approved',
+            ...(updatedStudent?.profilePhoto ? { profilePhoto: updatedStudent.profilePhoto } : {}),
+          });
+        } catch (err) {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('Realtime DB approve notice:', err);
+          }
+        }
+
+        // Send in-app notification to the student
+        this.sendNotification({
+          title: 'खाता सफलतापूर्वक स्वीकृत भयो (Account Approved)',
+          message: `नमस्ते ${updatedStudent?.name || ''}! तपाईंको विद्यार्थी खाता (ID: ${studentId}) प्रशासकद्वारा स्वीकृत गरिएको छ। अब तपाईं साप्ताहिक क्विजमा सहभागी हुन सक्नुहुन्छ।`,
+          targetType: 'specific',
+          targetStudentId: studentId,
+          targetStudentName: updatedStudent?.name || studentId,
+          type: 'success',
+          adminEmail,
+        }).catch(() => {});
+      };
+
+      // Trigger background sync without awaiting
+      syncBackend().catch(err => {
+        console.debug('Approve background sync non-fatal:', err);
+      });
+
       return { success: true, student: updatedStudent };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -981,30 +1019,7 @@ class DataService {
         updatedAt: now,
       };
 
-      // 1. Await confirmation from Firestore
-      try {
-        await setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true });
-        const student = this.getStudents().find(s => s.id === studentId);
-        if (student?.uid && student.uid !== studentId) {
-          await setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }).catch(() => {});
-        }
-      } catch (err) {
-        if (!isOfflineOrUnavailableError(err)) {
-          console.debug('Firestore reject sync notice:', err);
-        }
-      }
-
-      // 2. Update Realtime DB
-      update(ref(realtimeDb, `students/${studentId}`), {
-        ...updates,
-        status: 'rejected',
-      }).catch(err => {
-        if (!isOfflineOrUnavailableError(err)) {
-          console.debug('Realtime DB reject notice:', err);
-        }
-      });
-
-      // 3. Update local cache
+      // 1. INSTANT OPTIMISTIC UPDATE: Update local cache immediately
       const students = this.getStudents();
       const idx = students.findIndex(s => s.id === studentId);
       if (idx >= 0) {
@@ -1028,6 +1043,45 @@ class DataService {
       });
 
       this.notifyListeners();
+
+      // 2. Non-blocking asynchronous sync to Firestore & RTDB
+      const syncBackend = async () => {
+        try {
+          await withTimeout(
+            setDoc(doc(firestoreDb, 'students', studentId), updates, { merge: true }),
+            3000,
+            undefined
+          );
+          const student = this.getStudents().find(s => s.id === studentId);
+          if (student?.uid && student.uid !== studentId) {
+            await withTimeout(
+              setDoc(doc(firestoreDb, 'students', student.uid), updates, { merge: true }),
+              3000,
+              undefined
+            ).catch(() => {});
+          }
+        } catch (err) {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('Firestore reject sync notice:', err);
+          }
+        }
+
+        try {
+          await update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+            ...updates,
+            status: 'rejected',
+          });
+        } catch (err) {
+          if (!isOfflineOrUnavailableError(err)) {
+            console.debug('Realtime DB reject notice:', err);
+          }
+        }
+      };
+
+      syncBackend().catch(err => {
+        console.debug('Reject background sync non-fatal:', err);
+      });
+
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1037,27 +1091,89 @@ class DataService {
   }
 
   async checkStudentApprovalStatus(studentId: string): Promise<Student | null> {
+    if (!studentId) return null;
+    const cleanId = fromNepaliDigits(studentId.trim()).toUpperCase();
+
+    // 1. Check local cache first (instant, works offline without throwing)
+    const students = this.getStudents();
+    const local = students.find(s => s.id.toUpperCase() === cleanId);
+    if (local && (local.status === 'approved' || local.status === 'active' || local.status === 'rejected')) {
+      return local;
+    }
+
+    // 2. Query Realtime Database with fast timeout (ultra fast & lightweight)
     try {
-      const docSnap = await getDoc(doc(firestoreDb, 'students', studentId));
-      if (docSnap.exists()) {
+      const rtdbSnap = await withTimeout(
+        get(child(ref(realtimeDb), `students/${cleanId}`)),
+        1800,
+        null
+      );
+      if (rtdbSnap && rtdbSnap.exists()) {
+        const remote = rtdbSnap.val() as Student;
+        if (remote && remote.status) {
+          const idx = students.findIndex(s => s.id.toUpperCase() === cleanId);
+          if (idx >= 0) {
+            students[idx] = {
+              ...students[idx],
+              ...remote,
+              profilePhoto: remote.profilePhoto || students[idx].profilePhoto,
+            };
+            this.setStorage(STORAGE_KEYS.STUDENTS, students);
+          }
+          const cur = this.getCurrentStudent();
+          if (cur && cur.id.toUpperCase() === cleanId) {
+            this.setCurrentStudent({
+              ...cur,
+              ...remote,
+              profilePhoto: remote.profilePhoto || cur.profilePhoto,
+            });
+          }
+          this.notifyListeners();
+          return students[idx] || remote;
+        }
+      }
+    } catch {
+      // Ignore background RTDB notice
+    }
+
+    // 3. Query Firestore with timeout and offline protection
+    try {
+      const docSnap = await withTimeout(
+        getDoc(doc(firestoreDb, 'students', cleanId)),
+        2000,
+        null
+      );
+      if (docSnap && docSnap.exists()) {
         const remote = docSnap.data() as Student;
-        const students = this.getStudents();
-        const idx = students.findIndex(s => s.id === studentId);
+        const idx = students.findIndex(s => s.id.toUpperCase() === cleanId);
         if (idx >= 0) {
-          students[idx] = { ...students[idx], ...remote };
+          students[idx] = {
+            ...students[idx],
+            ...remote,
+            profilePhoto: remote.profilePhoto || students[idx].profilePhoto,
+          };
           this.setStorage(STORAGE_KEYS.STUDENTS, students);
         }
         const cur = this.getCurrentStudent();
-        if (cur && cur.id === studentId) {
-          this.setCurrentStudent({ ...cur, ...remote });
+        if (cur && cur.id.toUpperCase() === cleanId) {
+          this.setCurrentStudent({
+            ...cur,
+            ...remote,
+            profilePhoto: remote.profilePhoto || cur.profilePhoto,
+          });
         }
         this.notifyListeners();
-        return remote;
+        return students[idx] || remote;
       }
-    } catch (err) {
-      console.warn('checkStudentApprovalStatus notice:', err);
+    } catch (err: unknown) {
+      // Suppress offline or network errors completely - this is normal when Firestore client is offline
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('checkStudentApprovalStatus info:', err);
+      }
     }
-    return null;
+
+    // 4. Return cached local student as safe fallback
+    return local || null;
   }
 
   // =================== FIRESTORE & FIREBASE PERSISTENCE METHODS ===================
@@ -1102,7 +1218,7 @@ class DataService {
 
   async saveStudentToRealtimeDb(student: Student): Promise<{ success: boolean; error?: string }> {
     try {
-      const studentRef = ref(realtimeDb, `students/${student.id}`);
+      const studentRef = ref(realtimeDb, `students/${safeRtdbKey(student.id)}`);
       await update(studentRef, {
         id: student.id,
         studentId: student.id,
@@ -1119,6 +1235,7 @@ class DataService {
         passcodeHash: student.passcodeHash || (student.passcode ? hashPin(student.passcode) : undefined),
         appliedAt: student.appliedAt || student.createdAt,
         createdAt: student.createdAt,
+        ...(student.profilePhoto ? { profilePhoto: student.profilePhoto } : {}),
       });
       return { success: true };
     } catch (err: unknown) {
@@ -1298,7 +1415,11 @@ class DataService {
               for (const s of rawStd) {
                 if (s && s.id) {
                   const existing = stdMap.get(s.id);
-                  stdMap.set(s.id, { ...existing, ...s });
+                  stdMap.set(s.id, {
+                    ...existing,
+                    ...s,
+                    profilePhoto: s.profilePhoto || existing?.profilePhoto,
+                  });
                 }
               }
               this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(stdMap.values()));
@@ -1365,7 +1486,11 @@ class DataService {
           const s = docSnap.data() as Student;
           if (s && s.id) {
             const existing = stdMap.get(s.id);
-            stdMap.set(s.id, { ...existing, ...s });
+            stdMap.set(s.id, {
+              ...existing,
+              ...s,
+              profilePhoto: s.profilePhoto || existing?.profilePhoto,
+            });
           }
         });
         this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(stdMap.values()));
