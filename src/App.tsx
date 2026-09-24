@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { dataService } from './lib/dataService';
-import { auth, firestoreDb, onAuthStateChanged } from './lib/firebase';
+import { ref, onValue } from 'firebase/database';
+import { dataService, safeRtdbKey } from './lib/dataService';
+import { auth, firestoreDb, realtimeDb, onAuthStateChanged } from './lib/firebase';
 import type { Student, AdminUser, Quiz, QuizSession, WinnerRecord, Question, AuditLog } from './types/quiz';
 
 // Student Portal Components & Pages
@@ -186,54 +187,77 @@ export default function App() {
     }
   };
 
-  // Real-time listener on current student's own Firestore doc to instantly detect admin suspension/blocking
+  // Real-time listener on current student's status in Realtime Database & Firestore
+  // Explicitly ensures pending accounts are NEVER logged out. Only suspended/blocked accounts are terminated.
   useEffect(() => {
     if (!currentStudent?.id) return;
 
-    const unsubDoc = onSnapshot(
-      doc(firestoreDb, 'students', currentStudent.id),
-      (docSnap) => {
-        if (!docSnap.exists()) {
-          // Account was permanently deleted by admin
-          dataService.logoutStudent();
-          setCurrentStudent(null);
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem('student_kickout_reason', 'deleted');
-          }
-          navigate('/login');
-          return;
-        }
-        const data = docSnap.data() as Student;
+    // 1. Realtime Database listener (primary real-time engine)
+    const studentRtdbRef = ref(realtimeDb, `students/${safeRtdbKey(currentStudent.id)}`);
+    const unsubRtdb = onValue(
+      studentRtdbRef,
+      (snapshot) => {
+        if (!snapshot.exists()) return;
+        const data = snapshot.val() as Student;
+        if (!data) return;
+
         if (data.status === 'suspended' || data.status === 'blocked' || data.status === 'restricted') {
-          // Automatically log out suspended or blocked student
           dataService.logoutStudent();
           setCurrentStudent(null);
           if (typeof window !== 'undefined') {
             sessionStorage.setItem('student_kickout_reason', data.status);
           }
           navigate('/login');
-        } else if (data.status !== currentStudent.status || data.name !== currentStudent.name) {
-          setCurrentStudent(data);
+        } else if (data.status && (data.status !== currentStudent.status || data.name !== currentStudent.name)) {
+          setCurrentStudent((prev) => (prev ? { ...prev, ...data } : data));
         }
       },
       (err) => {
-        console.debug('Live student document snapshot notice:', err);
+        console.debug('RTDB student monitor notice:', err);
+      }
+    );
+
+    // 2. Firestore listener fallback
+    const unsubDoc = onSnapshot(
+      doc(firestoreDb, 'students', currentStudent.id),
+      (docSnap) => {
+        if (!docSnap.exists()) return;
+        const data = docSnap.data() as Student;
+        if (!data) return;
+
+        if (data.status === 'suspended' || data.status === 'blocked' || data.status === 'restricted') {
+          dataService.logoutStudent();
+          setCurrentStudent(null);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('student_kickout_reason', data.status);
+          }
+          navigate('/login');
+        } else if (data.status && (data.status !== currentStudent.status || data.name !== currentStudent.name)) {
+          setCurrentStudent((prev) => (prev ? { ...prev, ...data } : data));
+        }
+      },
+      (err) => {
+        console.debug('Firestore student monitor notice:', err);
       }
     );
 
     const handleTerminated = (e: Event) => {
       const customEvt = e as CustomEvent<{ reason?: string }>;
-      const reason = customEvt.detail?.reason || 'suspended';
-      dataService.logoutStudent();
-      setCurrentStudent(null);
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('student_kickout_reason', reason);
+      const reason = customEvt.detail?.reason || '';
+      // Only terminate session if account is suspended, blocked, or restricted
+      if (reason === 'suspended' || reason === 'blocked' || reason === 'restricted' || reason === 'deleted') {
+        dataService.logoutStudent();
+        setCurrentStudent(null);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('student_kickout_reason', reason);
+        }
+        navigate('/login');
       }
-      navigate('/login');
     };
     window.addEventListener('student_session_terminated', handleTerminated);
 
     return () => {
+      unsubRtdb();
       unsubDoc();
       window.removeEventListener('student_session_terminated', handleTerminated);
     };

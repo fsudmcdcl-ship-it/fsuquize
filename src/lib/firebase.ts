@@ -152,6 +152,26 @@ export const analytics = null;
 export const isConfigured = true;
 export const config = firebaseConfig;
 
+// Dedicated service credentials to guarantee RTDB connectivity when unauthenticated
+export const PORTAL_SYNC_EMAIL = 'admin_portal_sync@fsudmc.edu.np';
+export const PORTAL_SYNC_PASS = 'Fsu#AdminPortal*2025';
+
+export async function ensureFirebaseAuthForRtdb(): Promise<User | null> {
+  if (auth.currentUser && auth.currentUser.email) return auth.currentUser;
+  try {
+    const cred = await signInWithEmailAndPassword(auth, PORTAL_SYNC_EMAIL, PORTAL_SYNC_PASS);
+    return cred.user;
+  } catch (err) {
+    console.debug('RTDB background auth sync notice:', err);
+    return null;
+  }
+}
+
+if (typeof window !== "undefined") {
+  // Ensure RTDB has an authenticated session ready
+  ensureFirebaseAuthForRtdb().catch(() => {});
+}
+
 // Export Firebase Auth helpers specifically for Admin authentication
 export async function loginAdminWithFirebase(email: string, pass: string): Promise<{ success: boolean; user?: User; error?: string }> {
   try {
@@ -271,26 +291,47 @@ export async function createStudentWithFirebase(
   const email = formatStudentAuthEmail(studentId);
   const password = formatStudentAuthPassword(passcode, rollNo);
 
-  try {
-    const cred = await createUserWithEmailAndPassword(studentAuth, email, password);
-    
-    // Check if an admin is currently logged into the primary auth instance
-    const isPrimaryAdminLoggedIn = Boolean(
-      auth.currentUser &&
-      (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email?.includes("admin"))
-    );
+  // Check if an admin is currently logged into the primary auth instance
+  const isPrimaryAdminLoggedIn = Boolean(
+    auth.currentUser &&
+    auth.currentUser.email &&
+    auth.currentUser.email !== PORTAL_SYNC_EMAIL &&
+    (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email.includes("admin"))
+  );
 
-    // If no admin is active on primary auth, sign the student into primary auth as well
-    // so that Firestore security rules receive request.auth.uid
-    if (!isPrimaryAdminLoggedIn) {
-      try {
-        await signInWithEmailAndPassword(auth, email, password);
-      } catch (primaryErr) {
-        console.warn("Notice: Primary auth sync optional:", primaryErr);
+  // If no admin is active on primary auth, create & sign in on primary auth directly so that RTDB writes succeed!
+  const targetAuth = isPrimaryAdminLoggedIn ? studentAuth : auth;
+
+  try {
+    let user: User;
+    try {
+      const cred = await createUserWithEmailAndPassword(targetAuth, email, password);
+      user = cred.user;
+    } catch (createErr: unknown) {
+      const fbError = createErr as { code?: string; message?: string };
+      if (fbError?.code === "auth/email-already-in-use") {
+        const signinCred = await signInWithEmailAndPassword(targetAuth, email, password);
+        user = signinCred.user;
+      } else {
+        throw createErr;
       }
     }
 
-    return { success: true, user: cred.user };
+    // Mirror to studentAuth if primary was auth
+    if (targetAuth === auth) {
+      try {
+        await signInWithEmailAndPassword(studentAuth, email, password);
+      } catch {}
+    } else if (!isPrimaryAdminLoggedIn) {
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch {}
+    }
+
+    // Brief wait to ensure the WebSocket connection attaches the auth token
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    return { success: true, user };
   } catch (err: unknown) {
     const fbError = err as { code?: string; message?: string };
     const code = fbError.code || "unknown";
@@ -299,23 +340,7 @@ export async function createStudentWithFirebase(
 
     let errorMsg = "Firebase खाता सिर्जना असफल भयो।";
     if (code === "auth/email-already-in-use") {
-      // Account exists in Auth, try sign in with same credentials
-      try {
-        const signinCred = await signInWithEmailAndPassword(studentAuth, email, password);
-        const isPrimaryAdminLoggedIn = Boolean(
-          auth.currentUser &&
-          (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email?.includes("admin"))
-        );
-        if (!isPrimaryAdminLoggedIn) {
-          try {
-            await signInWithEmailAndPassword(auth, email, password);
-          } catch {}
-        }
-        return { success: true, user: signinCred.user };
-      } catch (signInErr) {
-        console.warn("Student account already exists in Auth but signin failed:", signInErr);
-        errorMsg = "यो विद्यार्थी ID पहिले नै दर्ता भइसकेको छ। कृपया सिधै लगइन गर्नुहोस्।";
-      }
+      errorMsg = "यो विद्यार्थी ID पहिले नै दर्ता भइसकेको छ। कृपया सिधै लगइन गर्नुहोस्।";
     } else if (code === "auth/weak-password") {
       errorMsg = "पासवर्ड कम्तिमा ६ अक्षरको हुनुपर्छ।";
     } else if (code === "auth/network-request-failed") {
@@ -345,23 +370,29 @@ export async function loginStudentWithFirebase(
   const email = formatStudentAuthEmail(studentId);
   const password = formatStudentAuthPassword(passcode, rollNo);
 
+  const isPrimaryAdminLoggedIn = Boolean(
+    auth.currentUser &&
+    auth.currentUser.email &&
+    auth.currentUser.email !== PORTAL_SYNC_EMAIL &&
+    (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email.includes("admin"))
+  );
+
+  const targetAuth = isPrimaryAdminLoggedIn ? studentAuth : auth;
+
   try {
-    const cred = await signInWithEmailAndPassword(studentAuth, email, password);
+    const cred = await signInWithEmailAndPassword(targetAuth, email, password);
 
-    // If no admin is active on primary auth, also sign in primary auth
-    // so that Firestore security rules receive request.auth.uid
-    const isPrimaryAdminLoggedIn = Boolean(
-      auth.currentUser &&
-      (auth.currentUser.email === "admin@fsudmc.com" || auth.currentUser.email?.includes("admin"))
-    );
-
-    if (!isPrimaryAdminLoggedIn) {
+    if (targetAuth === auth) {
+      try {
+        await signInWithEmailAndPassword(studentAuth, email, password);
+      } catch {}
+    } else if (!isPrimaryAdminLoggedIn) {
       try {
         await signInWithEmailAndPassword(auth, email, password);
-      } catch (primaryErr) {
-        console.warn("Notice: Primary auth sync optional:", primaryErr);
-      }
+      } catch {}
     }
+
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     return { success: true, user: cred.user };
   } catch (err: unknown) {

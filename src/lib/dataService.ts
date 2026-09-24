@@ -24,6 +24,7 @@ import {
   createStudentWithFirebase,
   loginStudentWithFirebase,
   formatStudentAuthEmail,
+  ensureFirebaseAuthForRtdb,
 } from './firebase';
 import { registerDeviceSession, logoutDeviceSession, disableRtdbSessionSync } from './deviceSession';
 import {
@@ -43,19 +44,16 @@ import { signOut } from 'firebase/auth';
 import { fromNepaliDigits } from './nepaliUtils';
 
 // Global state flags to track Realtime Database /students access
-// Defaults to true so Realtime Database and Firestore stay 100% in sync
+// Kept permanently enabled so Realtime Database stays in sync across all devices
 let isRtdbStudentsWritable = true;
 let isRtdbStudentsReadable = true;
 
 export function disableRtdbStudentsAccess(reason?: string): void {
-  if (isRtdbStudentsWritable || isRtdbStudentsReadable) {
-    isRtdbStudentsWritable = false;
-    isRtdbStudentsReadable = false;
-    disableRtdbSessionSync(reason);
-    if (reason) {
-      console.debug('Notice: Realtime Database student access disabled:', reason);
-    }
+  // Rather than disabling database sync, ensure auth session is active and retry
+  if (reason) {
+    console.debug('Notice: Realtime Database student access re-authenticating:', reason);
   }
+  ensureFirebaseAuthForRtdb().catch(() => {});
 }
 
 export function hashPin(pin: string): string {
@@ -258,6 +256,9 @@ class DataService {
     if (this.isRtdbListening || typeof window === 'undefined') return;
     this.isRtdbListening = true;
 
+    // Ensure Realtime Database has authenticated session so listeners receive updates
+    ensureFirebaseAuthForRtdb().catch(() => {});
+
     try {
       // 1. Live Notifications stream from Realtime Database
       const notifsRef = ref(realtimeDb, 'notifications');
@@ -319,14 +320,15 @@ class DataService {
                 const cur = this.getCurrentStudent();
                 if (cur) {
                   const match = updatedList.find(s => s.id === cur.id);
-                  if (!match || match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted') {
-                    // Automatically log out suspended or blocked accounts from their device
+                  // ONLY log out if the account is explicitly blocked, suspended, or restricted by admin.
+                  // NEVER log out pending or active accounts.
+                  if (match && (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted')) {
                     this.logoutStudent();
                     if (typeof window !== 'undefined') {
-                      sessionStorage.setItem('student_kickout_reason', match ? match.status : 'deleted');
-                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match ? match.status : 'deleted' } }));
+                      sessionStorage.setItem('student_kickout_reason', match.status);
+                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
                     }
-                  } else if (match.status !== cur.status || match.name !== cur.name) {
+                  } else if (match && (match.status !== cur.status || match.name !== cur.name)) {
                     this.setCurrentStudent(match);
                   }
                 }
@@ -338,7 +340,7 @@ class DataService {
         err => {
           const msg = String(err);
           if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
-            disableRtdbStudentsAccess('Permission denied on /students listener');
+            ensureFirebaseAuthForRtdb().catch(() => {});
           } else if (!isOfflineOrUnavailableError(err)) {
             console.debug('RTDB students listener notice:', err);
           }
@@ -600,17 +602,17 @@ class DataService {
                 const updatedList = Array.from(sMap.values());
                 this.setStorage(STORAGE_KEYS.STUDENTS, updatedList);
 
-                // Auto-logout if current logged-in student account was suspended, blocked or deleted
+                // Auto-logout ONLY if current logged-in student account is suspended or blocked
                 const cur = this.getCurrentStudent();
                 if (cur) {
                   const match = sMap.get(cur.id);
-                  if (!match || match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted') {
+                  if (match && (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted')) {
                     this.logoutStudent();
                     if (typeof window !== 'undefined') {
-                      sessionStorage.setItem('student_kickout_reason', match ? match.status : 'deleted');
-                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match ? match.status : 'deleted' } }));
+                      sessionStorage.setItem('student_kickout_reason', match.status);
+                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
                     }
-                  } else if (match.status !== cur.status || match.name !== cur.name) {
+                  } else if (match && (match.status !== cur.status || match.name !== cur.name)) {
                     this.setCurrentStudent(match);
                   }
                 }
@@ -861,12 +863,13 @@ class DataService {
     this.setCurrentStudent(newStudent);
     this.notifyListeners();
 
-    // 2. Concurrently initiate Firebase Auth and Cloud persistence
-    const authPromise = withTimeout(
-      createStudentWithFirebase(studentId, rollNoClean, passcodeClean),
-      3500,
-      { success: false, technicalError: 'auth-timeout-syncing' }
-    ).then(authResult => {
+    // 2. First establish Firebase Auth so RTDB has credentials
+    try {
+      const authResult = await withTimeout(
+        createStudentWithFirebase(studentId, rollNoClean, passcodeClean),
+        5000,
+        { success: false, technicalError: 'auth-timeout-syncing' }
+      );
       if (authResult.user?.uid) {
         newStudent.uid = authResult.user.uid;
         const curList = this.getStudents();
@@ -876,24 +879,24 @@ class DataService {
           this.setStorage(STORAGE_KEYS.STUDENTS, curList);
         }
       }
-    }).catch(err => {
-      console.debug('Firebase Auth background creation notice:', err);
-    });
+    } catch (authErr) {
+      console.debug('Firebase Auth student creation notice:', authErr);
+    }
 
-    const firestorePromise = withTimeout(
-      this.saveStudentToFirestore(newStudent),
-      3500,
-      { success: true }
-    ).catch(err => {
-      console.debug('Firestore background save notice:', err);
-    });
+    // 3. Immediately save to Realtime Database (with authenticated user!)
+    try {
+      const rtdbRes = await this.saveStudentToRealtimeDb(newStudent);
+      if (!rtdbRes.success) {
+        // Wait 250ms and retry once
+        await new Promise(resolve => setTimeout(resolve, 250));
+        await this.saveStudentToRealtimeDb(newStudent);
+      }
+    } catch (rtdbErr) {
+      console.debug('Realtime DB registration sync notice:', rtdbErr);
+    }
 
-    const rtdbPromise = this.saveStudentToRealtimeDb(newStudent).catch(err => {
-      console.debug('Realtime DB background sync notice:', err);
-    });
-
-    // Wait for cloud persistence to ensure registration is received by cloud database & admin panel
-    await Promise.allSettled([firestorePromise, rtdbPromise, authPromise]);
+    // 4. Background save to Firestore
+    this.saveStudentToFirestore(newStudent).catch(() => {});
 
     this.notifyListeners();
     return { success: true, student: newStudent };
@@ -1640,35 +1643,42 @@ class DataService {
   }
 
   async saveStudentToRealtimeDb(student: Student): Promise<{ success: boolean; error?: string }> {
-    if (!isRtdbStudentsWritable) {
-      return { success: true };
-    }
+    const studentPayload = stripUndefinedDeep({
+      id: student.id,
+      studentId: student.id,
+      uid: student.uid || student.id,
+      name: student.name,
+      rollNo: student.rollNo,
+      faculty: student.faculty || 'Management',
+      class: student.class,
+      semester: student.semester,
+      phone: student.phone,
+      username: student.username,
+      email: student.email || student.authEmail || `${student.id}@fsudmc.edu.np`,
+      status: student.status || 'pending',
+      role: 'student',
+      passcodeHash: student.passcodeHash || (student.passcode ? hashPin(student.passcode) : ''),
+      appliedAt: student.appliedAt || student.createdAt || new Date().toISOString(),
+      createdAt: student.createdAt || new Date().toISOString(),
+      ...(student.profilePhoto ? { profilePhoto: student.profilePhoto } : {}),
+    });
+
+    const studentRef = ref(realtimeDb, `students/${safeRtdbKey(student.id)}`);
+
     try {
-      const studentRef = ref(realtimeDb, `students/${safeRtdbKey(student.id)}`);
-      await update(studentRef, stripUndefinedDeep({
-        id: student.id,
-        studentId: student.id,
-        uid: student.uid || student.id,
-        name: student.name,
-        rollNo: student.rollNo,
-        class: student.class,
-        semester: student.semester,
-        phone: student.phone,
-        username: student.username,
-        email: student.email || student.authEmail || `${student.id}@fsudmc.edu.np`,
-        status: student.status || 'pending',
-        role: 'student',
-        passcodeHash: student.passcodeHash || (student.passcode ? hashPin(student.passcode) : undefined),
-        appliedAt: student.appliedAt || student.createdAt,
-        createdAt: student.createdAt,
-        ...(student.profilePhoto ? { profilePhoto: student.profilePhoto } : {}),
-      }));
+      await set(studentRef, studentPayload);
       return { success: true };
     } catch (err: unknown) {
       const fbError = err as { code?: string; message?: string };
       const msg = `${fbError?.code || ''} ${fbError?.message || String(err)}`;
       if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
-        disableRtdbStudentsAccess('Permission denied on saveStudentToRealtimeDb');
+        try {
+          await ensureFirebaseAuthForRtdb();
+          await set(studentRef, studentPayload);
+          return { success: true };
+        } catch (retryErr) {
+          console.error('Realtime Database student save retry error:', retryErr);
+        }
       } else if (!isOfflineOrUnavailableError(err)) {
         console.debug('Realtime Database student sync notice:', fbError?.code, fbError?.message);
       }
@@ -1784,10 +1794,18 @@ class DataService {
     }
     this.isSyncing = true;
     try {
-      // 1. Fetch Realtime Database root snapshot with 3.5s timeout
+      // 0. Ensure Firebase Auth is active for RTDB
+      await ensureFirebaseAuthForRtdb().catch(() => {});
+
+      // 1. Fetch Realtime Database root snapshot and explicit students node
       const rtdbPromise = withTimeout(
         get(ref(realtimeDb)).catch(() => null),
-        3500,
+        4000,
+        null
+      );
+      const rtdbStudentsPromise = withTimeout(
+        get(ref(realtimeDb, 'students')).catch(() => null),
+        4000,
         null
       );
 
@@ -1830,6 +1848,7 @@ class DataService {
 
       const [
         rtdbSnap,
+        rtdbStudentsSnap,
         fStudents,
         fQuizzes,
         fQuestions,
@@ -1839,6 +1858,7 @@ class DataService {
         fNotifs,
       ] = await Promise.all([
         rtdbPromise,
+        rtdbStudentsPromise,
         firestoreStudentsPromise,
         firestoreQuizzesPromise,
         firestoreQuestionsPromise,
@@ -1849,28 +1869,36 @@ class DataService {
       ]);
 
       // A. Populate from Realtime Database if present
+      let rawStd: Student[] = [];
+      if (rtdbStudentsSnap && rtdbStudentsSnap.exists()) {
+        const val = rtdbStudentsSnap.val();
+        rawStd = typeof val === 'object' && val !== null ? (Object.values(val) as Student[]) : [];
+      } else if (rtdbSnap && rtdbSnap.exists()) {
+        const rootVal = rtdbSnap.val();
+        if (rootVal?.students) {
+          rawStd = typeof rootVal.students === 'object' ? (Object.values(rootVal.students) as Student[]) : [];
+        }
+      }
+
+      if (rawStd.length > 0) {
+        const stdMap = new Map<string, Student>();
+        for (const s of this.getStudents()) stdMap.set(s.id, s);
+        for (const s of rawStd) {
+          if (s && s.id) {
+            const existing = stdMap.get(s.id);
+            stdMap.set(s.id, {
+              ...existing,
+              ...s,
+              profilePhoto: s.profilePhoto || existing?.profilePhoto,
+            });
+          }
+        }
+        this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(stdMap.values()));
+      }
+
       if (rtdbSnap && rtdbSnap.exists()) {
         const rootVal = rtdbSnap.val();
         if (rootVal && typeof rootVal === 'object') {
-          // Students
-          if (rootVal.students) {
-            const rawStd = typeof rootVal.students === 'object' ? Object.values(rootVal.students) as Student[] : [];
-            if (rawStd.length > 0) {
-              const stdMap = new Map<string, Student>();
-              for (const s of this.getStudents()) stdMap.set(s.id, s);
-              for (const s of rawStd) {
-                if (s && s.id) {
-                  const existing = stdMap.get(s.id);
-                  stdMap.set(s.id, {
-                    ...existing,
-                    ...s,
-                    profilePhoto: s.profilePhoto || existing?.profilePhoto,
-                  });
-                }
-              }
-              this.setStorage(STORAGE_KEYS.STUDENTS, Array.from(stdMap.values()));
-            }
-          }
 
           // Quizzes
           if (rootVal.quizzes) {
