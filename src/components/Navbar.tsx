@@ -156,10 +156,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
               <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
             </a>
 
-            {/* In-App Notifications Bell */}
-            <div className="ml-1">
-              <NotificationBell student={student} />
-            </div>
+            {/* In-App Notifications Bell - Only available once user is logged in */}
+            {student && (
+              <div className="ml-1">
+                <NotificationBell student={student} />
+              </div>
+            )}
 
             {/* If student logged in, show user preview and logout */}
             {student && (
@@ -200,8 +202,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
 
           {/* Mobile menu trigger */}
           <div className="flex items-center gap-2 md:hidden">
-            {/* Mobile Notification Bell */}
-            <NotificationBell student={student} />
+            {/* Mobile Notification Bell - Only available once user is logged in */}
+            {student && <NotificationBell student={student} />}
 
             {student && (
               <div
