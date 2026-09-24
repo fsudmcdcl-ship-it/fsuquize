@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { dataService } from './lib/dataService';
-import { auth, onAuthStateChanged } from './lib/firebase';
+import { auth, firestoreDb, onAuthStateChanged } from './lib/firebase';
 import type { Student, AdminUser, Quiz, QuizSession, WinnerRecord, Question, AuditLog } from './types/quiz';
 
 // Student Portal Components & Pages
@@ -171,7 +172,72 @@ export default function App() {
 
     const logs = dataService.getAuditLogs();
     setAuditLogs(logs);
+
+    // Auto-logout if current student account is suspended, blocked, or missing
+    if (s) {
+      if (s.status === 'suspended' || s.status === 'blocked' || s.status === 'restricted') {
+        dataService.logoutStudent();
+        setCurrentStudent(null);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('student_kickout_reason', s.status);
+        }
+        navigate('/login');
+      }
+    }
   };
+
+  // Real-time listener on current student's own Firestore doc to instantly detect admin suspension/blocking
+  useEffect(() => {
+    if (!currentStudent?.id) return;
+
+    const unsubDoc = onSnapshot(
+      doc(firestoreDb, 'students', currentStudent.id),
+      (docSnap) => {
+        if (!docSnap.exists()) {
+          // Account was permanently deleted by admin
+          dataService.logoutStudent();
+          setCurrentStudent(null);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('student_kickout_reason', 'deleted');
+          }
+          navigate('/login');
+          return;
+        }
+        const data = docSnap.data() as Student;
+        if (data.status === 'suspended' || data.status === 'blocked' || data.status === 'restricted') {
+          // Automatically log out suspended or blocked student
+          dataService.logoutStudent();
+          setCurrentStudent(null);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('student_kickout_reason', data.status);
+          }
+          navigate('/login');
+        } else if (data.status !== currentStudent.status || data.name !== currentStudent.name) {
+          setCurrentStudent(data);
+        }
+      },
+      (err) => {
+        console.debug('Live student document snapshot notice:', err);
+      }
+    );
+
+    const handleTerminated = (e: Event) => {
+      const customEvt = e as CustomEvent<{ reason?: string }>;
+      const reason = customEvt.detail?.reason || 'suspended';
+      dataService.logoutStudent();
+      setCurrentStudent(null);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('student_kickout_reason', reason);
+      }
+      navigate('/login');
+    };
+    window.addEventListener('student_session_terminated', handleTerminated);
+
+    return () => {
+      unsubDoc();
+      window.removeEventListener('student_session_terminated', handleTerminated);
+    };
+  }, [currentStudent?.id]);
 
   useEffect(() => {
     refreshData();
@@ -382,9 +448,35 @@ export default function App() {
   }
 
   // Student portal routes
+  const isSuspendedOrBlocked =
+    currentStudent &&
+    (currentStudent.status === 'suspended' ||
+      currentStudent.status === 'blocked' ||
+      currentStudent.status === 'restricted');
+
   let studentPageContent: React.ReactNode = null;
 
-  if (currentPath === '/' || currentPath === '') {
+  if (isSuspendedOrBlocked && currentPath !== '/login' && currentPath !== '/register' && currentPath !== '/' && currentPath !== '') {
+    const reason = currentStudent.status;
+    dataService.logoutStudent();
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('student_kickout_reason', reason);
+    }
+    studentPageContent = (
+      <LoginPage
+        navigate={navigate}
+        onStudentLoggedIn={student => {
+          setCurrentStudent(student);
+          refreshData();
+          if (student.status === 'pending') {
+            navigate('/pending');
+          } else {
+            navigate('/dashboard');
+          }
+        }}
+      />
+    );
+  } else if (currentPath === '/' || currentPath === '') {
     studentPageContent = (
       <HomePage
         navigate={navigate}

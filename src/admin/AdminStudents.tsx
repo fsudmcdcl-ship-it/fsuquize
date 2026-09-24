@@ -26,6 +26,7 @@ import {
   Eye,
   Camera,
   Trophy,
+  RefreshCw,
 } from 'lucide-react';
 import {
   getAdminLanguage,
@@ -69,6 +70,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [previewPhotoStudent, setPreviewPhotoStudent] = useState<Student | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const t = adminTranslations[lang];
 
@@ -84,6 +86,19 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      await dataService.syncWithRealtimeDbAndFirestore();
+      onRefresh();
+      showToast(lang === 'ne' ? 'विद्यार्थी सूची सफलतापूर्वक सिङ्क भयो।' : 'Student list synced successfully.');
+    } catch {
+      showToast(lang === 'ne' ? 'सिङ्क गर्दा समस्या आयो।' : 'Failed to sync student list.');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleApproveStudent = async (student: Student) => {
@@ -330,6 +345,16 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+            title="क्लाउडबाट नयाँ दर्ता र डाटा तुरुन्तै सिङ्क गर्नुहोस् (Sync latest registrations from cloud)"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isSyncing ? 'animate-spin text-red-600' : ''}`} />
+            <span>{isSyncing ? (lang === 'ne' ? 'सिङ्क हुँदैछ...' : 'Syncing...') : (lang === 'ne' ? 'रिफ्रेस / सिङ्क' : 'Refresh Sync')}</span>
+          </button>
           <button
             type="button"
             onClick={() => {

@@ -39,17 +39,27 @@ service cloud.firestore {
     // Students collection
     // - Reading is allowed for student ID lookup and campus administration
     // - Registration is permitted with status == 'pending'
-    // - Normal students CANNOT change their status, approve themselves or others
-    // - Only administrators can approve, reject, block or delete student accounts
+    // - Students CANNOT approve themselves (only admin can change status to approved, active, suspended, blocked)
+    // - Only administrators can approve or block student accounts
     match /students/{studentId} {
       allow read: if true;
       
+      // Permit new student self-registration with status 'pending'
       allow create: if (
         request.resource.data.status == 'pending' &&
         (request.resource.data.role == 'student' || !('role' in request.resource.data))
       ) || isAdmin();
 
+      // Permit updates:
+      // 1. Administrators can make any update (approval, rejection, suspension, blocking, editing)
+      // 2. Pending or rejected applicants can update or re-submit their application details (must remain 'pending')
+      // 3. Approved students can update non-administrative profile fields or credentials
+      // 4. Device sessions tracking (activeSessions)
       allow update: if isAdmin() || (
+        request.resource.data.status == 'pending' &&
+        (resource == null || resource.data.status == 'pending' || resource.data.status == 'rejected') &&
+        (request.resource.data.role == 'student' || !('role' in request.resource.data))
+      ) || (
         isAuthenticated() &&
         (
           (resource != null && resource.data.uid == request.auth.uid) ||
@@ -63,7 +73,8 @@ service cloud.firestore {
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'role', 'approvedAt', 'approvedBy', 'name', 'rollNo', 'phone', 'passcodeHash'])
       );
 
-      allow delete: if isAdmin();
+      // Allow deletion by admin, or self-cleanup of unapproved (pending/rejected) draft records
+      allow delete: if isAdmin() || (resource != null && (resource.data.status == 'pending' || resource.data.status == 'rejected'));
     }
 
     // Admins collection

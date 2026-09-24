@@ -16,6 +16,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
   const [error, setError] = useState('');
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [kickoutAlert, setKickoutAlert] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const reason = sessionStorage.getItem('student_kickout_reason');
+      if (reason) {
+        sessionStorage.removeItem('student_kickout_reason');
+        if (reason === 'blocked') {
+          return '🚫 तपाईंको विद्यार्थी खाता क्याम्पस प्रशासनद्वारा बन्द (Blocked) गरिएको छ। तपाईंको उपकरणबाट स्वचालित रूपमा लगआउट गरिएको छ।';
+        }
+        if (reason === 'suspended') {
+          return '⚠️ तपाईंको विद्यार्थी खाता क्याम्पस प्रशासनद्वारा निलम्बन (Suspended) गरिएको छ। तपाईंको उपकरणबाट स्वचालित रूपमा लगआउट गरिएको छ।';
+        }
+        if (reason === 'deleted') {
+          return 'ℹ️ तपाईंको विद्यार्थी खाता प्रणालीबाट हटाइएको छ। तपाईं यस उपकरणबाट स्वचालित रूपमा लगआउट हुनुभएको छ।';
+        }
+        return '⚠️ तपाईंको विद्यार्थी खाता स्थिति परिवर्तन भएकाले सुरक्षाका लागि स्वतः लगआउट गरिएको छ।';
+      }
+    }
+    return null;
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,6 +100,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
             FSU DMC साप्ताहिक क्विज पोर्टलमा स्वागत छ
           </p>
         </div>
+
+        {kickoutAlert && (
+          <div className="mb-5 p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-xs leading-relaxed flex items-start gap-2.5 animate-in fade-in shadow-xs">
+            <Shield className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
+            <div className="flex-1 font-medium">{kickoutAlert}</div>
+          </div>
+        )}
 
         {error && (
           <div className="mb-5 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs leading-relaxed flex items-start gap-2.5 animate-in fade-in">

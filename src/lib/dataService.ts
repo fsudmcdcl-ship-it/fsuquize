@@ -43,9 +43,9 @@ import { signOut } from 'firebase/auth';
 import { fromNepaliDigits } from './nepaliUtils';
 
 // Global state flags to track Realtime Database /students access
-// Defaults to false so client writes use Firestore directly (avoids RTDB permission_denied warnings)
-let isRtdbStudentsWritable = false;
-let isRtdbStudentsReadable = false;
+// Defaults to true so Realtime Database and Firestore stay 100% in sync
+let isRtdbStudentsWritable = true;
+let isRtdbStudentsReadable = true;
 
 export function disableRtdbStudentsAccess(reason?: string): void {
   if (isRtdbStudentsWritable || isRtdbStudentsReadable) {
@@ -319,7 +319,14 @@ class DataService {
                 const cur = this.getCurrentStudent();
                 if (cur) {
                   const match = updatedList.find(s => s.id === cur.id);
-                  if (match) {
+                  if (!match || match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted') {
+                    // Automatically log out suspended or blocked accounts from their device
+                    this.logoutStudent();
+                    if (typeof window !== 'undefined') {
+                      sessionStorage.setItem('student_kickout_reason', match ? match.status : 'deleted');
+                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match ? match.status : 'deleted' } }));
+                    }
+                  } else if (match.status !== cur.status || match.name !== cur.name) {
                     this.setCurrentStudent(match);
                   }
                 }
@@ -548,6 +555,74 @@ class DataService {
           console.debug('Firestore liveBroadcast onSnapshot notice:', err);
         }
       );
+
+      // 4. Live Students & Registrations stream from Firestore
+      // Ensures newly registered students appear in Admin Panel in real time without refreshing
+      onSnapshot(
+        collection(firestoreDb, 'students'),
+        snapshot => {
+          if (!snapshot.empty) {
+            const list: Student[] = [];
+            snapshot.forEach(docSnap => {
+              const data = docSnap.data() as Student;
+              if (data && data.id && !data.id.startsWith('__')) {
+                list.push(data);
+              }
+            });
+            if (list.length > 0) {
+              const currentList = this.getStudents();
+              const sMap = new Map<string, Student>();
+              for (const s of currentList) sMap.set(s.id, s);
+              let hasChanged = false;
+
+              for (const r of list) {
+                if (r && r.id) {
+                  const existing = sMap.get(r.id);
+                  if (
+                    !existing ||
+                    existing.status !== r.status ||
+                    existing.approvedAt !== r.approvedAt ||
+                    existing.name !== r.name ||
+                    existing.phone !== r.phone ||
+                    existing.rollNo !== r.rollNo ||
+                    existing.class !== r.class ||
+                    existing.semester !== r.semester ||
+                    existing.profilePhoto !== r.profilePhoto ||
+                    existing.appliedAt !== r.appliedAt
+                  ) {
+                    sMap.set(r.id, { ...existing, ...r });
+                    hasChanged = true;
+                  }
+                }
+              }
+
+              if (hasChanged) {
+                const updatedList = Array.from(sMap.values());
+                this.setStorage(STORAGE_KEYS.STUDENTS, updatedList);
+
+                // Auto-logout if current logged-in student account was suspended, blocked or deleted
+                const cur = this.getCurrentStudent();
+                if (cur) {
+                  const match = sMap.get(cur.id);
+                  if (!match || match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted') {
+                    this.logoutStudent();
+                    if (typeof window !== 'undefined') {
+                      sessionStorage.setItem('student_kickout_reason', match ? match.status : 'deleted');
+                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match ? match.status : 'deleted' } }));
+                    }
+                  } else if (match.status !== cur.status || match.name !== cur.name) {
+                    this.setCurrentStudent(match);
+                  }
+                }
+                this.notifyListeners();
+              }
+            }
+          }
+        },
+        err => {
+          console.debug('Firestore students onSnapshot notice:', err);
+        }
+      );
     } catch (err) {
       console.debug('Firestore init listeners error:', err);
     }
@@ -599,7 +674,13 @@ class DataService {
   // =================== AUTHENTICATION ===================
 
   getCurrentStudent(): Student | null {
-    return this.getStorage<Student | null>(STORAGE_KEYS.CURRENT_STUDENT, null);
+    const s = this.getStorage<Student | null>(STORAGE_KEYS.CURRENT_STUDENT, null);
+    if (!s) return null;
+    if (s.status === 'suspended' || s.status === 'blocked' || s.status === 'restricted') {
+      this.setStorage(STORAGE_KEYS.CURRENT_STUDENT, null);
+      return null;
+    }
+    return s;
   }
 
   setCurrentStudent(student: Student | null): void {
@@ -780,7 +861,7 @@ class DataService {
     this.setCurrentStudent(newStudent);
     this.notifyListeners();
 
-    // 2. Concurrently initiate Firebase Auth and Firestore
+    // 2. Concurrently initiate Firebase Auth and Cloud persistence
     const authPromise = withTimeout(
       createStudentWithFirebase(studentId, rollNoClean, passcodeClean),
       3500,
@@ -811,12 +892,10 @@ class DataService {
       console.debug('Realtime DB background sync notice:', err);
     });
 
-    // Wait at most 800ms for fast cloud acknowledgment, then return immediately
-    await Promise.race([
-      Promise.allSettled([authPromise, firestorePromise, rtdbPromise]),
-      new Promise(resolve => setTimeout(resolve, 800))
-    ]);
+    // Wait for cloud persistence to ensure registration is received by cloud database & admin panel
+    await Promise.allSettled([firestorePromise, rtdbPromise, authPromise]);
 
+    this.notifyListeners();
     return { success: true, student: newStudent };
   }
 
@@ -987,24 +1066,38 @@ class DataService {
     students[idx].updatedAt = new Date().toISOString();
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
 
-    // Update current student session if currently logged in
+    // Update current student session or auto-logout if suspended or blocked
     const cur = this.getCurrentStudent();
     if (cur && cur.id === studentId) {
-      cur.status = status;
-      this.setCurrentStudent(cur);
+      if (status === 'suspended' || status === 'blocked' || status === 'restricted') {
+        this.logoutStudent();
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('student_kickout_reason', status);
+          window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: status } }));
+        }
+      } else {
+        cur.status = status;
+        this.setCurrentStudent(cur);
+      }
     }
 
     // Persist directly to Firestore backend & Realtime Database
-    this.updateStudentInFirestore(studentId, {
+    const payload: Partial<Student> = {
       status,
       updatedAt: students[idx].updatedAt
-    }).catch(err => console.warn('Firestore updateStudentStatus warning:', err));
+    };
+    if (status === 'suspended' || status === 'blocked' || status === 'restricted') {
+      (payload as any).activeSessions = {};
+    }
+
+    this.updateStudentInFirestore(studentId, payload).catch(err => console.warn('Firestore updateStudentStatus warning:', err));
 
     if (isRtdbStudentsWritable) {
-      update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+      update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), stripUndefinedDeep({
         status,
+        ...(status === 'suspended' || status === 'blocked' || status === 'restricted' ? { activeSessions: null } : {}),
         updatedAt: students[idx].updatedAt,
-      }).catch((err) => {
+      })).catch((err) => {
         if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission_denied')) {
           disableRtdbStudentsAccess('Permission denied on updateStudentStatus');
         }
@@ -1086,7 +1179,15 @@ class DataService {
       });
     }
 
-    // Clean up all quiz attempts and submissions of this student
+    // If the deleted student was logged in on this browser, log them out immediately
+    const cur = this.getCurrentStudent();
+    if (cur && cur.id === studentId) {
+      this.logoutStudent();
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('student_kickout_reason', 'deleted');
+        window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
+      }
+    }
     if (purgeSessions) {
       const allSessions = this.getSessions();
       const studentSessions = allSessions.filter(
@@ -1515,6 +1616,10 @@ class DataService {
       if (!sanitized.passcodeHash && (student.passcodeHash || student.passcode)) {
         sanitized.passcodeHash = student.passcodeHash || hashPin(student.passcode!);
       }
+      if (sanitized.status === 'pending') {
+        delete sanitized.approvedAt;
+        delete sanitized.approvedBy;
+      }
 
       await withTimeout(
         setDoc(doc(firestoreDb, 'students', student.id), sanitized, { merge: true }),
@@ -1540,7 +1645,7 @@ class DataService {
     }
     try {
       const studentRef = ref(realtimeDb, `students/${safeRtdbKey(student.id)}`);
-      await update(studentRef, {
+      await update(studentRef, stripUndefinedDeep({
         id: student.id,
         studentId: student.id,
         uid: student.uid || student.id,
@@ -1557,7 +1662,7 @@ class DataService {
         appliedAt: student.appliedAt || student.createdAt,
         createdAt: student.createdAt,
         ...(student.profilePhoto ? { profilePhoto: student.profilePhoto } : {}),
-      });
+      }));
       return { success: true };
     } catch (err: unknown) {
       const fbError = err as { code?: string; message?: string };
