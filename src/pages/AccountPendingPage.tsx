@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import type { Student } from '../types/quiz';
 import { dataService } from '../lib/dataService';
 import { formatNepalDate, toNepaliDigits } from '../lib/nepaliUtils';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { firestoreDb } from '../lib/firebase';
 import {
   Clock,
   ShieldAlert,
@@ -47,7 +49,7 @@ export const AccountPendingPage: React.FC<AccountPendingPageProps> = ({
     }
   }, [initialStudent]);
 
-  // Automatic real-time status listener & gentle background polling
+  // Automatic real-time status listener directly via Firestore onSnapshot + gentle background fallback
   useEffect(() => {
     let isMounted = true;
 
@@ -67,11 +69,32 @@ export const AccountPendingPage: React.FC<AccountPendingPageProps> = ({
       }
     };
 
-    // 1. Check immediately in background without throwing
+    // 1. Initial immediate check from local cache / Firestore
     dataService.checkStudentApprovalStatus(student.id).then(checkCurrent).catch(() => {});
 
-    // 2. Subscribe to dataService local updates (e.g. if admin approves in background or session updates)
-    const unsubscribe = dataService.subscribe(() => {
+    // 2. Direct real-time Firestore onSnapshot listener for instant verification without polling delays
+    let unsubFirestore: (() => void) | null = null;
+    try {
+      const studentDocRef = doc(firestoreDb, 'students', student.id);
+      unsubFirestore = onSnapshot(
+        studentDocRef,
+        (snap) => {
+          if (isMounted && snap.exists()) {
+            const fresh = snap.data() as Student;
+            dataService.updateCachedStudent(fresh);
+            checkCurrent(fresh);
+          }
+        },
+        (err) => {
+          console.debug('Firestore pending status listener notice:', err);
+        }
+      );
+    } catch (e) {
+      console.debug('Failed to initialize Firestore pending listener:', e);
+    }
+
+    // 3. Subscribe to dataService local updates
+    const unsubscribeDataService = dataService.subscribe(() => {
       const cur = dataService.getCurrentStudent();
       const updated = cur?.id === student.id ? cur : dataService.getStudents().find(s => s.id === student.id);
       if (updated) {
@@ -79,14 +102,19 @@ export const AccountPendingPage: React.FC<AccountPendingPageProps> = ({
       }
     });
 
-    // 3. Low-frequency background polling (every 4 seconds)
+    // 4. Low-frequency background polling (every 6 seconds) as fallback
     const interval = setInterval(() => {
       dataService.checkStudentApprovalStatus(student.id).then(checkCurrent).catch(() => {});
-    }, 4000);
+    }, 6000);
 
     return () => {
       isMounted = false;
-      unsubscribe();
+      if (unsubFirestore) {
+        try {
+          unsubFirestore();
+        } catch {}
+      }
+      unsubscribeDataService();
       clearInterval(interval);
     };
   }, [student.id, navigate, onStatusUpdated]);

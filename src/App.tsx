@@ -235,6 +235,13 @@ export default function App() {
     navigate('/');
   };
 
+  const handleStudentStatusUpdated = (updated?: Student) => {
+    if (updated) {
+      setCurrentStudent(updated);
+    }
+    refreshData();
+  };
+
   const adminSlug = dataService.getAdminSlug() || 'quizemasteradmin';
   const adminPrefix = `/${adminSlug}`;
 
@@ -446,7 +453,7 @@ export default function App() {
           student={currentStudent}
           navigate={navigate}
           onLogout={handleStudentLogout}
-          onStatusUpdated={() => refreshData()}
+          onStatusUpdated={handleStudentStatusUpdated}
         />
       );
     }
@@ -472,7 +479,7 @@ export default function App() {
           student={currentStudent}
           navigate={navigate}
           onLogout={handleStudentLogout}
-          onStatusUpdated={() => refreshData()}
+          onStatusUpdated={handleStudentStatusUpdated}
         />
       );
     } else {
@@ -494,7 +501,7 @@ export default function App() {
           student={currentStudent}
           navigate={navigate}
           onLogout={handleStudentLogout}
-          onStatusUpdated={() => refreshData()}
+          onStatusUpdated={handleStudentStatusUpdated}
         />
       );
     } else {
@@ -530,7 +537,7 @@ export default function App() {
           student={currentStudent}
           navigate={navigate}
           onLogout={handleStudentLogout}
-          onStatusUpdated={() => refreshData()}
+          onStatusUpdated={handleStudentStatusUpdated}
         />
       );
     } else {
@@ -573,7 +580,7 @@ export default function App() {
           student={currentStudent}
           navigate={navigate}
           onLogout={handleStudentLogout}
-          onStatusUpdated={() => refreshData()}
+          onStatusUpdated={handleStudentStatusUpdated}
         />
       );
     } else {
@@ -608,7 +615,7 @@ export default function App() {
           student={currentStudent}
           navigate={navigate}
           onLogout={handleStudentLogout}
-          onStatusUpdated={() => refreshData()}
+          onStatusUpdated={handleStudentStatusUpdated}
         />
       );
     } else {

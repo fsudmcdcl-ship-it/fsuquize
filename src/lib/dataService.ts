@@ -25,7 +25,7 @@ import {
   loginStudentWithFirebase,
   formatStudentAuthEmail,
 } from './firebase';
-import { registerDeviceSession, logoutDeviceSession } from './deviceSession';
+import { registerDeviceSession, logoutDeviceSession, disableRtdbSessionSync } from './deviceSession';
 import {
   collection,
   doc,
@@ -40,6 +40,21 @@ import {
 import { ref, get, child, update, set, onValue, remove } from 'firebase/database';
 import { signOut } from 'firebase/auth';
 import { fromNepaliDigits } from './nepaliUtils';
+
+// Global state flags to track Realtime Database /students access
+let isRtdbStudentsWritable = true;
+let isRtdbStudentsReadable = true;
+
+export function disableRtdbStudentsAccess(reason?: string): void {
+  if (isRtdbStudentsWritable || isRtdbStudentsReadable) {
+    isRtdbStudentsWritable = false;
+    isRtdbStudentsReadable = false;
+    disableRtdbSessionSync(reason);
+    if (reason) {
+      console.debug('Notice: Realtime Database student access disabled:', reason);
+    }
+  }
+}
 
 export function hashPin(pin: string): string {
   if (!pin) return '';
@@ -310,7 +325,10 @@ class DataService {
           }
         },
         err => {
-          if (!isOfflineOrUnavailableError(err)) {
+          const msg = String(err);
+          if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
+            disableRtdbStudentsAccess('Permission denied on /students listener');
+          } else if (!isOfflineOrUnavailableError(err)) {
             console.debug('RTDB students listener notice:', err);
           }
         }
@@ -830,10 +848,16 @@ class DataService {
       updatedAt: students[idx].updatedAt
     }).catch(err => console.warn('Firestore updateStudentStatus warning:', err));
 
-    update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
-      status,
-      updatedAt: students[idx].updatedAt,
-    }).catch(() => {});
+    if (isRtdbStudentsWritable) {
+      update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+        status,
+        updatedAt: students[idx].updatedAt,
+      }).catch((err) => {
+        if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission_denied')) {
+          disableRtdbStudentsAccess('Permission denied on updateStudentStatus');
+        }
+      });
+    }
 
     this.addAuditLog({
       adminEmail,
@@ -871,7 +895,9 @@ class DataService {
         console.debug('Firestore updateStudent notice:', err);
       }
     });
-    this.saveStudentToRealtimeDb(updatedStudent).catch(() => {});
+    if (isRtdbStudentsWritable) {
+      this.saveStudentToRealtimeDb(updatedStudent).catch(() => {});
+    }
 
     this.addAuditLog({
       adminEmail,
@@ -895,7 +921,13 @@ class DataService {
         console.debug('Firestore deleteStudent notice:', err);
       }
     });
-    remove(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`)).catch(() => {});
+    if (isRtdbStudentsWritable) {
+      remove(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`)).catch((err) => {
+        if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission_denied')) {
+          disableRtdbStudentsAccess('Permission denied on deleteStudent');
+        }
+      });
+    }
 
     this.addAuditLog({
       adminEmail,
@@ -986,16 +1018,21 @@ class DataService {
           }
         }
 
-        // Realtime DB sync
-        try {
-          await update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
-            ...updates,
-            status: 'approved',
-            ...(updatedStudent?.profilePhoto ? { profilePhoto: updatedStudent.profilePhoto } : {}),
-          });
-        } catch (err) {
-          if (!isOfflineOrUnavailableError(err)) {
-            console.debug('Realtime DB approve notice:', err);
+        // Realtime DB sync (only if writable)
+        if (isRtdbStudentsWritable) {
+          try {
+            await update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+              ...updates,
+              status: 'approved',
+              ...(updatedStudent?.profilePhoto ? { profilePhoto: updatedStudent.profilePhoto } : {}),
+            });
+          } catch (err) {
+            const msg = String(err);
+            if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
+              disableRtdbStudentsAccess('Permission denied on approve RTDB sync');
+            } else if (!isOfflineOrUnavailableError(err)) {
+              console.debug('Realtime DB approve notice:', err);
+            }
           }
         }
 
@@ -1085,14 +1122,19 @@ class DataService {
           }
         }
 
-        try {
-          await update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
-            ...updates,
-            status: 'rejected',
-          });
-        } catch (err) {
-          if (!isOfflineOrUnavailableError(err)) {
-            console.debug('Realtime DB reject notice:', err);
+        if (isRtdbStudentsWritable) {
+          try {
+            await update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+              ...updates,
+              status: 'rejected',
+            });
+          } catch (err) {
+            const msg = String(err);
+            if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
+              disableRtdbStudentsAccess('Permission denied on reject RTDB sync');
+            } else if (!isOfflineOrUnavailableError(err)) {
+              console.debug('Realtime DB reject notice:', err);
+            }
           }
         }
       };
@@ -1120,42 +1162,7 @@ class DataService {
       return local;
     }
 
-    // 2. Query Realtime Database with fast timeout (ultra fast & lightweight)
-    try {
-      const rtdbSnap = await withTimeout(
-        get(child(ref(realtimeDb), `students/${cleanId}`)),
-        1800,
-        null
-      );
-      if (rtdbSnap && rtdbSnap.exists()) {
-        const remote = rtdbSnap.val() as Student;
-        if (remote && remote.status) {
-          const idx = students.findIndex(s => s.id.toUpperCase() === cleanId);
-          if (idx >= 0) {
-            students[idx] = {
-              ...students[idx],
-              ...remote,
-              profilePhoto: remote.profilePhoto || students[idx].profilePhoto,
-            };
-            this.setStorage(STORAGE_KEYS.STUDENTS, students);
-          }
-          const cur = this.getCurrentStudent();
-          if (cur && cur.id.toUpperCase() === cleanId) {
-            this.setCurrentStudent({
-              ...cur,
-              ...remote,
-              profilePhoto: remote.profilePhoto || cur.profilePhoto,
-            });
-          }
-          this.notifyListeners();
-          return students[idx] || remote;
-        }
-      }
-    } catch {
-      // Ignore background RTDB notice
-    }
-
-    // 3. Query Firestore with timeout and offline protection
+    // 2. PRIMARY: Query Firestore with timeout and offline protection
     try {
       const docSnap = await withTimeout(
         getDoc(doc(firestoreDb, 'students', cleanId)),
@@ -1185,9 +1192,48 @@ class DataService {
         return students[idx] || remote;
       }
     } catch (err: unknown) {
-      // Suppress offline or network errors completely - this is normal when Firestore client is offline
       if (!isOfflineOrUnavailableError(err)) {
-        console.debug('checkStudentApprovalStatus info:', err);
+        console.debug('Firestore checkStudentApprovalStatus info:', err);
+      }
+    }
+
+    // 3. AUXILIARY: Query Realtime Database only if readable and Firestore didn't return
+    if (isRtdbStudentsReadable) {
+      try {
+        const rtdbSnap = await withTimeout(
+          get(child(ref(realtimeDb), `students/${cleanId}`)),
+          1500,
+          null
+        );
+        if (rtdbSnap && rtdbSnap.exists()) {
+          const remote = rtdbSnap.val() as Student;
+          if (remote && remote.status) {
+            const idx = students.findIndex(s => s.id.toUpperCase() === cleanId);
+            if (idx >= 0) {
+              students[idx] = {
+                ...students[idx],
+                ...remote,
+                profilePhoto: remote.profilePhoto || students[idx].profilePhoto,
+              };
+              this.setStorage(STORAGE_KEYS.STUDENTS, students);
+            }
+            const cur = this.getCurrentStudent();
+            if (cur && cur.id.toUpperCase() === cleanId) {
+              this.setCurrentStudent({
+                ...cur,
+                ...remote,
+                profilePhoto: remote.profilePhoto || cur.profilePhoto,
+              });
+            }
+            this.notifyListeners();
+            return students[idx] || remote;
+          }
+        }
+      } catch (err: unknown) {
+        const msg = String(err);
+        if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
+          disableRtdbStudentsAccess('Permission denied on checkStudentApprovalStatus RTDB');
+        }
       }
     }
 
@@ -1196,6 +1242,27 @@ class DataService {
   }
 
   // =================== FIRESTORE & FIREBASE PERSISTENCE METHODS ===================
+
+  /**
+   * Updates cached student in local memory and triggers listeners
+   */
+  updateCachedStudent(freshStudent: Student): void {
+    if (!freshStudent || !freshStudent.id) return;
+    const list = this.getStudents();
+    const idx = list.findIndex(s => s.id === freshStudent.id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...freshStudent };
+    } else {
+      list.push(freshStudent);
+    }
+    this.setStorage(STORAGE_KEYS.STUDENTS, list);
+
+    const cur = this.getCurrentStudent();
+    if (cur && cur.id === freshStudent.id) {
+      this.setCurrentStudent({ ...cur, ...freshStudent });
+    }
+    this.notifyListeners();
+  }
 
   async saveStudentToFirestore(
     student: Student
@@ -1236,6 +1303,9 @@ class DataService {
   }
 
   async saveStudentToRealtimeDb(student: Student): Promise<{ success: boolean; error?: string }> {
+    if (!isRtdbStudentsWritable) {
+      return { success: true };
+    }
     try {
       const studentRef = ref(realtimeDb, `students/${safeRtdbKey(student.id)}`);
       await update(studentRef, {
@@ -1259,7 +1329,10 @@ class DataService {
       return { success: true };
     } catch (err: unknown) {
       const fbError = err as { code?: string; message?: string };
-      if (!isOfflineOrUnavailableError(err)) {
+      const msg = `${fbError?.code || ''} ${fbError?.message || String(err)}`;
+      if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
+        disableRtdbStudentsAccess('Permission denied on saveStudentToRealtimeDb');
+      } else if (!isOfflineOrUnavailableError(err)) {
         console.debug('Realtime Database student sync notice:', fbError?.code, fbError?.message);
       }
       return { success: false, error: fbError?.message };
@@ -1279,20 +1352,27 @@ class DataService {
     if (localFound) return localFound;
 
     try {
-      // 1. Direct ID lookups in parallel (RTDB & Firestore)
-      const rtdbPromise = get(child(ref(realtimeDb), `students/${queryUpper}`)).then(snap => {
-        if (snap.exists()) return snap.val() as Student;
-        return null;
-      }).catch(() => null);
-
+      // 1. Direct ID lookups: Firestore FIRST (PRIMARY) & RTDB optional
       const firestoreDirectPromise = getDoc(doc(firestoreDb, 'students', queryUpper)).then(snap => {
         if (snap.exists()) return snap.data() as Student;
         return null;
       }).catch(() => null);
 
-      const [rtdbRes, firestoreRes] = await Promise.all([rtdbPromise, firestoreDirectPromise]);
-      if (rtdbRes) return rtdbRes;
+      const rtdbPromise = isRtdbStudentsReadable
+        ? get(child(ref(realtimeDb), `students/${queryUpper}`)).then(snap => {
+            if (snap.exists()) return snap.val() as Student;
+            return null;
+          }).catch((err) => {
+            if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission_denied')) {
+              disableRtdbStudentsAccess('Permission denied on getStudentFromFirebase RTDB');
+            }
+            return null;
+          })
+        : Promise.resolve(null);
+
+      const [firestoreRes, rtdbRes] = await Promise.all([firestoreDirectPromise, rtdbPromise]);
       if (firestoreRes) return firestoreRes;
+      if (rtdbRes) return rtdbRes;
 
       // 2. Query Firestore by phone if 10-digit number
       if (/^\d{10}$/.test(raw)) {
@@ -1679,10 +1759,15 @@ class DataService {
         }),
       ];
 
-      if (rtdbPayload.students) {
+      if (rtdbPayload.students && isRtdbStudentsWritable) {
         rtdbWrites.push(
           set(ref(realtimeDb, 'students'), rtdbPayload.students).catch(err => {
-            console.debug('RTDB students notice:', err);
+            const msg = String(err);
+            if (msg.includes('PERMISSION_DENIED') || msg.includes('permission_denied')) {
+              disableRtdbStudentsAccess();
+            } else {
+              console.debug('RTDB students notice:', err);
+            }
             return null;
           })
         );

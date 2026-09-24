@@ -5,6 +5,18 @@ import type { DeviceSession, Student } from "../types/quiz";
 
 const DEVICE_ID_KEY = "fsudmc_client_device_id";
 
+// Track whether RTDB activeSessions is writable
+let isRtdbSessionSyncEnabled = true;
+
+export function disableRtdbSessionSync(reason?: string) {
+  if (isRtdbSessionSyncEnabled) {
+    isRtdbSessionSyncEnabled = false;
+    if (reason) {
+      console.debug("Notice: Realtime Database session sync disabled:", reason);
+    }
+  }
+}
+
 /**
  * 1. Get or generate a persistent unique device ID for this client browser/device
  */
@@ -78,20 +90,8 @@ export async function registerDeviceSession(
     isCurrent: true,
   };
 
+  // A. PRIMARY: Sync directly to Firestore students document under activeSessions map
   try {
-    // A. Sync to Realtime Database with automatic disconnection cleanup
-    const rtdbSessionRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions/${safeDeviceKey}`);
-    await set(rtdbSessionRef, {
-      ...sessionData,
-      lastActive: nowMs,
-    });
-    // Set up auto-status update on disconnect
-    onDisconnect(rtdbSessionRef).update({
-      lastActive: nowMs,
-      status: "expired",
-    }).catch(() => {});
-
-    // B. Sync to Firestore students document under activeSessions map
     const studentDocRef = doc(firestoreDb, "students", studentId);
     await setDoc(
       studentDocRef,
@@ -104,7 +104,28 @@ export async function registerDeviceSession(
       { merge: true }
     );
   } catch (err) {
-    console.debug("Notice: Device session sync offline fallback:", err);
+    console.debug("Notice: Firestore device session sync fallback:", err);
+  }
+
+  // B. AUXILIARY: Sync to Realtime Database only if permissions are valid
+  if (isRtdbSessionSyncEnabled) {
+    try {
+      const rtdbSessionRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions/${safeDeviceKey}`);
+      await set(rtdbSessionRef, {
+        ...sessionData,
+        lastActive: nowMs,
+      });
+      // Set up auto-status update on disconnect
+      onDisconnect(rtdbSessionRef).update({
+        lastActive: nowMs,
+        status: "expired",
+      }).catch(() => {});
+    } catch (err: unknown) {
+      const msg = String(err);
+      if (msg.includes("PERMISSION_DENIED") || msg.includes("permission_denied")) {
+        disableRtdbSessionSync("Permission denied on activeSessions");
+      }
+    }
   }
 
   return sessionData;
@@ -118,18 +139,27 @@ export async function logoutDeviceSession(studentId: string): Promise<void> {
   const safeStudentKey = sanitizePathKey(studentId);
   const safeDeviceKey = sanitizePathKey(deviceId);
 
+  // A. PRIMARY: Remove device session from Firestore activeSessions map
   try {
-    // A. Remove device session from Realtime Database
-    const rtdbSessionRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions/${safeDeviceKey}`);
-    await remove(rtdbSessionRef);
-
-    // B. Remove device session from Firestore activeSessions map
     const studentDocRef = doc(firestoreDb, "students", studentId);
     await updateDoc(studentDocRef, {
       [`activeSessions.${deviceId}`]: deleteField(),
     });
   } catch (err) {
-    console.debug("Notice: Logout device session offline fallback:", err);
+    console.debug("Notice: Logout device session Firestore fallback:", err);
+  }
+
+  // B. AUXILIARY: Remove device session from Realtime Database
+  if (isRtdbSessionSyncEnabled) {
+    try {
+      const rtdbSessionRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions/${safeDeviceKey}`);
+      await remove(rtdbSessionRef);
+    } catch (err: unknown) {
+      const msg = String(err);
+      if (msg.includes("PERMISSION_DENIED") || msg.includes("permission_denied")) {
+        disableRtdbSessionSync("Permission denied on logout session");
+      }
+    }
   }
 }
 
@@ -141,25 +171,14 @@ export async function fetchActiveSessions(
 ): Promise<DeviceSession[]> {
   const currentDeviceId = getOrCreateDeviceId();
   const safeStudentKey = sanitizePathKey(studentId);
-  try {
-    // Try Realtime Database first for instant state
-    const rtdbRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions`);
-    const snap = await get(rtdbRef);
-    if (snap.exists()) {
-      const data = snap.val() as Record<string, DeviceSession>;
-      return Object.entries(data).map(([devId, s]) => ({
-        ...s,
-        deviceId: devId,
-        isCurrent: devId === currentDeviceId,
-      }));
-    }
 
-    // Fallback to Firestore
+  // 1. PRIMARY: Fetch from Firestore
+  try {
     const studentDocRef = doc(firestoreDb, "students", studentId);
     const fsSnap = await getDoc(studentDocRef);
     if (fsSnap.exists()) {
       const studentData = fsSnap.data() as Student;
-      if (studentData.activeSessions) {
+      if (studentData.activeSessions && Object.keys(studentData.activeSessions).length > 0) {
         return Object.entries(studentData.activeSessions).map(([devId, s]) => ({
           ...s,
           deviceId: devId,
@@ -168,7 +187,28 @@ export async function fetchActiveSessions(
       }
     }
   } catch (err) {
-    console.debug("Notice: Fetch active sessions offline fallback:", err);
+    console.debug("Notice: Fetch active sessions Firestore fallback:", err);
+  }
+
+  // 2. AUXILIARY: Fallback to Realtime Database if available and enabled
+  if (isRtdbSessionSyncEnabled) {
+    try {
+      const rtdbRef = ref(realtimeDb, `students/${safeStudentKey}/activeSessions`);
+      const snap = await get(rtdbRef);
+      if (snap.exists()) {
+        const data = snap.val() as Record<string, DeviceSession>;
+        return Object.entries(data).map(([devId, s]) => ({
+          ...s,
+          deviceId: devId,
+          isCurrent: devId === currentDeviceId,
+        }));
+      }
+    } catch (err: unknown) {
+      const msg = String(err);
+      if (msg.includes("PERMISSION_DENIED") || msg.includes("permission_denied")) {
+        disableRtdbSessionSync("Permission denied on fetchActiveSessions");
+      }
+    }
   }
 
   return [];
