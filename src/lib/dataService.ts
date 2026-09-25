@@ -12,6 +12,7 @@ import type {
   StudentStatus,
   AppNotification,
   NotificationType,
+  PasswordResetRequest,
 } from '../types/quiz';
 import { INITIAL_50_QUESTIONS } from './seedQuestions';
 import {
@@ -41,12 +42,36 @@ import {
 } from 'firebase/firestore';
 import { ref, get, child, update, set, onValue, remove } from 'firebase/database';
 import { signOut } from 'firebase/auth';
-import { fromNepaliDigits } from './nepaliUtils';
+import { fromNepaliDigits, toNepaliDigits } from './nepaliUtils';
 
 // Global state flags to track Realtime Database /students access
 // Kept permanently enabled so Realtime Database stays in sync across all devices
 let isRtdbStudentsWritable = true;
 let isRtdbStudentsReadable = true;
+
+export function triggerSystemNotification(title: string, message: string, tag?: string) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    try {
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then(reg => {
+          reg.showNotification(title, {
+            body: message,
+            icon: '/icon-192.png',
+            tag: tag || 'fsu_dmc_notification',
+            badge: '/icon-192.png',
+          });
+        }).catch(() => {
+          new Notification(title, { body: message, icon: '/icon-192.png', tag: tag || 'fsu_dmc_notification' });
+        });
+      } else {
+        new Notification(title, { body: message, icon: '/icon-192.png', tag: tag || 'fsu_dmc_notification' });
+      }
+    } catch (e) {
+      console.debug('System notification notice:', e);
+    }
+  }
+}
 
 export function disableRtdbStudentsAccess(reason?: string): void {
   // Rather than disabling database sync, ensure auth session is active and retry
@@ -123,6 +148,7 @@ const STORAGE_KEYS = {
   AUDIT_LOGS: 'fsudmc_audit_logs_v2',
   SETTINGS: 'fsudmc_settings_v2',
   NOTIFICATIONS: 'fsudmc_notifications_v2',
+  PASSWORD_RESETS: 'fsudmc_password_resets_v2',
   LOCKED_PICKED_QUESTIONS: 'fsudmc_locked_picked_questions_v2',
   DRAFT_STATUS: 'fsudmc_draft_pending_v2',
   LAST_SYNC: 'fsudmc_last_sync_v2',
@@ -317,12 +343,17 @@ class DataService {
                 const updatedList = Array.from(map.values());
                 this.setStorage(STORAGE_KEYS.STUDENTS, updatedList);
 
-                const cur = this.getCurrentStudent();
+                const cur = this.getStorage<Student | null>(STORAGE_KEYS.CURRENT_STUDENT, null);
                 if (cur) {
                   const match = updatedList.find(s => s.id === cur.id);
-                  // ONLY log out if the account is explicitly blocked, suspended, or restricted by admin.
-                  // NEVER log out pending or active accounts.
-                  if (match && (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted')) {
+                  if (!match) {
+                    // Account was deleted from backend: automatically logout!
+                    this.logoutStudent();
+                    if (typeof window !== 'undefined') {
+                      sessionStorage.setItem('student_kickout_reason', 'deleted');
+                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
+                    }
+                  } else if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted' || match.status === 'disabled') {
                     this.logoutStudent();
                     if (typeof window !== 'undefined') {
                       sessionStorage.setItem('student_kickout_reason', match.status);
@@ -603,10 +634,17 @@ class DataService {
                 this.setStorage(STORAGE_KEYS.STUDENTS, updatedList);
 
                 // Auto-logout ONLY if current logged-in student account is suspended or blocked
-                const cur = this.getCurrentStudent();
+                const cur = this.getStorage<Student | null>(STORAGE_KEYS.CURRENT_STUDENT, null);
                 if (cur) {
                   const match = sMap.get(cur.id);
-                  if (match && (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted')) {
+                  if (!match) {
+                    // Account was deleted from backend: automatically logout!
+                    this.logoutStudent();
+                    if (typeof window !== 'undefined') {
+                      sessionStorage.setItem('student_kickout_reason', 'deleted');
+                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
+                    }
+                  } else if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted' || match.status === 'disabled') {
                     this.logoutStudent();
                     if (typeof window !== 'undefined') {
                       sessionStorage.setItem('student_kickout_reason', match.status);
@@ -678,9 +716,30 @@ class DataService {
   getCurrentStudent(): Student | null {
     const s = this.getStorage<Student | null>(STORAGE_KEYS.CURRENT_STUDENT, null);
     if (!s) return null;
-    if (s.status === 'suspended' || s.status === 'blocked' || s.status === 'restricted') {
+    if (s.status === 'suspended' || s.status === 'blocked' || s.status === 'restricted' || s.status === 'disabled') {
       this.setStorage(STORAGE_KEYS.CURRENT_STUDENT, null);
       return null;
+    }
+    const all = this.getStudents();
+    if (all.length > 0) {
+      const match = all.find(item => item.id.toLowerCase() === s.id.toLowerCase());
+      if (!match) {
+        this.setStorage(STORAGE_KEYS.CURRENT_STUDENT, null);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('student_kickout_reason', 'deleted');
+          window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
+        }
+        return null;
+      }
+      if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted' || match.status === 'disabled') {
+        this.setStorage(STORAGE_KEYS.CURRENT_STUDENT, null);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('student_kickout_reason', match.status);
+          window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
+        }
+        return null;
+      }
+      return match;
     }
     return s;
   }
@@ -761,7 +820,7 @@ class DataService {
   async registerStudent(params: {
     name: string;
     rollNo: string;
-    faculty?: 'Management' | 'Humanity' | 'Arts' | string;
+    faculty?: 'Management' | 'Humanity' | string;
     class: string;
     semester: string;
     phone: string;
@@ -924,32 +983,35 @@ class DataService {
   }
 
   async loginStudent(
-    studentIdOrUsername: string,
+    studentIdOnly: string,
     passcode: string
   ): Promise<{ success: boolean; student?: Student; error?: string; technicalError?: string }> {
-    const queryStr = fromNepaliDigits(studentIdOrUsername.trim());
+    const queryStr = fromNepaliDigits(studentIdOnly.trim());
     const queryUpper = queryStr.toUpperCase();
     const cleanPass = fromNepaliDigits(passcode.trim()).replace(/\D/g, '');
 
     if (!queryStr) {
-      return { success: false, error: 'कृपया आफ्नो विद्यार्थी ID, फोन वा रोल नम्बर प्रविष्ट गर्नुहोस्।' };
+      return { success: false, error: 'कृपया आफ्नो अद्वितीय विद्यार्थी ID (Unique Student ID) प्रविष्ट गर्नुहोस्।' };
     }
     if (!cleanPass) {
       return { success: false, error: 'कृपया ४ अंकको पासकोड प्रविष्ट गर्नुहोस्।' };
     }
 
-    // 1. Check local memory / localStorage first
-    let student = this.getStudents().find(s =>
-      s.id.toUpperCase() === queryUpper ||
-      s.username.toUpperCase() === queryUpper ||
-      s.phone === queryStr ||
-      s.rollNo.toUpperCase() === queryUpper
-    );
+    // Auto-detect if admin accidentally tried logging in here
+    if (queryUpper.includes('ADMIN') || queryUpper.includes('QUIZEMASTER') || queryStr.toLowerCase() === 'info@fsudmc.com') {
+      const adminResult = this.loginAdmin(queryStr, cleanPass);
+      if (adminResult.success) {
+        return { success: false, error: 'यो एडमिन खाता हो, कृपया एडमिन पोर्टलबाट लगइन गर्नुहोस्।' };
+      }
+    }
 
-    // 2. If not found in local cache, query Firestore & Realtime Database with fast timeout
+    // 1. Check local memory / localStorage first - ONLY MATCH UNIQUE STUDENT ID
+    let student = this.getStudents().find(s => s.id.toUpperCase() === queryUpper);
+
+    // 2. If not found in local cache, query Firestore & Realtime Database strictly by Student ID document key
     if (!student) {
-      const remoteStudent = await withTimeout(this.getStudentFromFirebase(queryStr), 3000, null);
-      if (remoteStudent) {
+      const remoteStudent = await withTimeout(this.getStudentFromFirebase(queryUpper), 3000, null);
+      if (remoteStudent && remoteStudent.id.toUpperCase() === queryUpper) {
         student = remoteStudent;
         const currentList = this.getStudents();
         if (!currentList.some(s => s.id === remoteStudent.id)) {
@@ -962,22 +1024,38 @@ class DataService {
     if (!student) {
       return {
         success: false,
-        error: 'विद्यार्थी ID, फोन वा रोल नम्बर फेला परेन। कृपया पहिले नयाँ खाता दर्ता गर्नुहोस्।',
-        technicalError: `not-found: student '${queryStr}' not present in local cache or Firestore`
+        error: 'यो विद्यार्थी ID फेला परेन वा प्रशासकद्वारा खाता हटाइएको छ। केवल आफ्नो आधिकारिक विद्यार्थी ID (उदा. FSU...) मात्र प्रयोग गर्नुहोस् वा नयाँ खाता दर्ता गर्नुहोस्।',
+        technicalError: `not-found: student ID '${queryUpper}' not present`
       };
     }
 
-    // Account status restrictions
-    if (student.status === 'blocked') {
-      return { success: false, error: 'तपाईंको विद्यार्थी खाता प्रशासकद्वारा ब्लक गरिएको छ। कृपया क्याम्पस प्रशासनसँग सम्पर्क गर्नुहोस्।' };
+    // Account status restrictions: Blocked or Disabled or Suspended accounts cannot login
+    if (student.status === 'blocked' || student.status === 'disabled' || (student.status as string) === 'disabled') {
+      return {
+        success: false,
+        error: '🚫 तपाईंको खाता सुरक्षाका लागि ब्लक (Blocked/Disabled) गरिएको छ। क्याम्पस मास्टर एडमिनसँग सम्पर्क गरी खाता अनब्लक र नयाँ पासवर्ड प्राप्त गर्नुहोस्।'
+      };
     }
 
     if (student.status === 'rejected') {
-      return { success: false, error: 'तपाईंको विद्यार्थी दर्ता आवेदन क्याम्पस प्रशासनद्वारा अस्वीकृत गरिएको छ। कृपया क्याम्पसमा सम्पर्क गर्नुहोस्।' };
+      return {
+        success: false,
+        error: 'तपाईंको विद्यार्थी दर्ता आवेदन क्याम्पस प्रशासनद्वारा अस्वीकृत गरिएको छ। कृपया क्याम्पसमा सम्पर्क गर्नुहोस् वा नयाँ आवेदन दिनुहोस्।'
+      };
     }
 
     if (student.status === 'suspended') {
-      return { success: false, error: 'तपाईंको विद्यार्थी खाता हाल निलम्बित गरिएको छ। सहायताका लागि प्रशासनलाई सम्पर्क गर्नुहोस्।' };
+      return {
+        success: false,
+        error: '⚠️ तपाईंको विद्यार्थी खाता हाल निलम्बित (Suspended) गरिएको छ। सहायताका लागि क्याम्पस प्रशासनलाई सम्पर्क गर्नुहोस्।'
+      };
+    }
+
+    if (student.status === 'restricted') {
+      return {
+        success: false,
+        error: '⚠️ तपाईंको विद्यार्थी खाता हाल प्रतिबन्धित गरिएको छ।'
+      };
     }
 
     // 3. Fast Credential Verification
@@ -1009,15 +1087,27 @@ class DataService {
         createStudentWithFirebase(student.id, student.rollNo, cleanPass).catch(() => {});
       }
 
-      // Ensure credentials cached in student object
+      // Successful login resets failed attempts to 0
+      student.failedLoginAttempts = 0;
       if (!student.passcode) student.passcode = cleanPass;
       if (!student.passcodeHash) student.passcodeHash = pinHash;
 
       const curList = this.getStudents();
       const sIdx = curList.findIndex(s => s.id === student!.id);
       if (sIdx >= 0) {
-        curList[sIdx] = { ...curList[sIdx], ...student };
+        curList[sIdx] = { ...curList[sIdx], ...student, failedLoginAttempts: 0 };
         this.setStorage(STORAGE_KEYS.STUDENTS, curList);
+      }
+
+      // Update failedLoginAttempts reset in backend
+      setDoc(doc(firestoreDb, 'students', student.id), {
+        failedLoginAttempts: 0
+      }, { merge: true }).catch(() => {});
+
+      if (isRtdbStudentsWritable) {
+        update(ref(realtimeDb, `students/${safeRtdbKey(student.id)}`), {
+          failedLoginAttempts: 0
+        }).catch(() => {});
       }
 
       // Check live approval status in background
@@ -1033,11 +1123,158 @@ class DataService {
       return { success: true, student };
     }
 
+    // Passcode does NOT match -> Increment failed attempts
+    const currentAttempts = (student.failedLoginAttempts || 0) + 1;
+    student.failedLoginAttempts = currentAttempts;
+
+    if (currentAttempts >= 3) {
+      // Rule: 3 times password wrong then block their account
+      const now = new Date().toISOString();
+      student.status = 'blocked';
+      student.blockedReason = '३ पटक लगातार गलत पासकोड प्रविष्ट गरिएकाले खाता सुरक्षाका लागि ब्लक गरिएको छ। क्याम्पस मास्टर एडमिनबाट अनब्लक र नयाँ पासवर्ड लिनुहोस्।';
+      student.updatedAt = now;
+
+      const curList = this.getStudents();
+      const sIdx = curList.findIndex(s => s.id === student!.id);
+      if (sIdx >= 0) {
+        curList[sIdx] = { ...student };
+        this.setStorage(STORAGE_KEYS.STUDENTS, curList);
+      }
+
+      // Sync block to Firestore
+      setDoc(doc(firestoreDb, 'students', student.id), {
+        status: 'blocked',
+        blockedReason: student.blockedReason,
+        failedLoginAttempts: currentAttempts,
+        updatedAt: now
+      }, { merge: true }).catch(() => {});
+
+      // Sync block to Realtime Database
+      if (isRtdbStudentsWritable) {
+        update(ref(realtimeDb, `students/${safeRtdbKey(student.id)}`), {
+          status: 'blocked',
+          blockedReason: student.blockedReason,
+          failedLoginAttempts: currentAttempts,
+          updatedAt: now
+        }).catch(() => {});
+      }
+
+      this.addAuditLog({
+        adminEmail: 'security_system',
+        action: 'विद्यार्थी खाता ब्लक (३ पटक गलत पासवर्ड)',
+        target: student.id,
+        details: `विद्यार्थी ${student.name} (ID: ${student.id}) ले लगातार ३ पटक गलत पासकोड प्रविष्ट गरेकाले खाता स्वतः ब्लक गरियो`
+      });
+
+      this.notifyListeners();
+      return {
+        success: false,
+        error: '🚫 ३ पटक गलत पासकोड प्रविष्ट गरिएकाले तपाईंको खाता ब्लक गरिएको छ। क्याम्पस मास्टर एडमिनसँग सम्पर्क गरी खाता अनब्लक र नयाँ पासवर्ड प्राप्त गर्नुहोस्।'
+      };
+    }
+
+    // Less than 3 attempts: save failed count and inform user of remaining attempts
+    const curList = this.getStudents();
+    const sIdx = curList.findIndex(s => s.id === student!.id);
+    if (sIdx >= 0) {
+      curList[sIdx] = { ...student };
+      this.setStorage(STORAGE_KEYS.STUDENTS, curList);
+    }
+
+    setDoc(doc(firestoreDb, 'students', student.id), {
+      failedLoginAttempts: currentAttempts
+    }, { merge: true }).catch(() => {});
+
+    const remaining = 3 - currentAttempts;
     return {
       success: false,
-      error: 'प्रविष्ट गरिएको ४-अंकको पासकोड (PIN) मिलेन। कृपया सही पासकोड प्रविष्ट गर्नुहोस्।',
+      error: `गलत पासकोड प्रविष्ट गरियो। (${toNepaliDigits(currentAttempts)}/३ प्रयास) - ३ पटक गलत भएमा खाता स्वतः ब्लक हुनेछ। बाँकी प्रयास: ${toNepaliDigits(remaining)}`,
       technicalError: fbTechnicalError || 'passcode-mismatch'
     };
+  }
+
+  /**
+   * Master Admin action to unblock a student's account, clear failed attempts, and assign a new password
+   */
+  unblockAndResetStudentPassword(
+    studentId: string,
+    newPasscode: string,
+    adminEmail = 'admin@fsudmc.com'
+  ): { success: boolean; student?: Student; error?: string } {
+    const cleanPass = fromNepaliDigits(newPasscode.trim()).replace(/\D/g, '');
+    if (!cleanPass || cleanPass.length !== 4) {
+      return { success: false, error: 'पासकोड ठ्याक्कै ४ अंकको संख्या हुनुपर्छ।' };
+    }
+
+    const students = this.getStudents();
+    const student = students.find(s => s.id === studentId);
+    if (!student) {
+      return { success: false, error: 'विद्यार्थी खाता फेला परेन।' };
+    }
+
+    const now = new Date().toISOString();
+    const pinHash = hashPin(cleanPass);
+
+    const updatedStudent: Student = {
+      ...student,
+      status: 'approved',
+      failedLoginAttempts: 0,
+      passcode: cleanPass,
+      passcodeHash: pinHash,
+      updatedAt: now
+    };
+    delete (updatedStudent as any).blockedReason;
+
+    const sIdx = students.findIndex(s => s.id === studentId);
+    if (sIdx >= 0) {
+      students[sIdx] = updatedStudent;
+      this.setStorage(STORAGE_KEYS.STUDENTS, students);
+    }
+
+    // Sync to Firestore
+    setDoc(doc(firestoreDb, 'students', studentId), {
+      status: 'approved',
+      failedLoginAttempts: 0,
+      passcode: cleanPass,
+      passcodeHash: pinHash,
+      blockedReason: null,
+      updatedAt: now
+    }, { merge: true }).catch(() => {});
+
+    // Sync to Realtime Database
+    if (isRtdbStudentsWritable) {
+      update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+        status: 'approved',
+        failedLoginAttempts: 0,
+        passcode: cleanPass,
+        passcodeHash: pinHash,
+        blockedReason: null,
+        updatedAt: now
+      }).catch(() => {});
+    }
+
+    // Sync Firebase Auth with new passcode
+    createStudentWithFirebase(studentId, student.rollNo, cleanPass).catch(() => {});
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'विद्यार्थी खाता अनब्लक र पासवर्ड रिसेट',
+      target: studentId,
+      details: `मास्टर एडमिनद्वारा विद्यार्थी ${student.name} (ID: ${studentId}) को खाता अनब्लक गरियो र नयाँ पासकोड सेट गरियो`
+    });
+
+    this.sendNotification({
+      title: 'खाता अनब्लक र नयाँ पासकोड (Account Unblocked)',
+      message: `नमस्ते ${student.name}! तपाईंको खाता मास्टर एडमिनद्वारा अनब्लक गरिएको छ। तपाईंको नयाँ ४-अंकको पासकोड: ${cleanPass} हो। कृपया लगइन गर्नुहोस्।`,
+      targetType: 'specific',
+      targetStudentId: studentId,
+      targetStudentName: student.name,
+      type: 'success',
+      adminEmail
+    }).catch(() => {});
+
+    this.notifyListeners();
+    return { success: true, student: updatedStudent };
   }
 
   loginAdmin(email: string, passcodeOrPin: string): { success: boolean; admin?: AdminUser; error?: string } {
@@ -1072,7 +1309,7 @@ class DataService {
     // Update current student session or auto-logout if suspended or blocked
     const cur = this.getCurrentStudent();
     if (cur && cur.id === studentId) {
-      if (status === 'suspended' || status === 'blocked' || status === 'restricted') {
+      if (status === 'suspended' || status === 'blocked' || status === 'restricted' || status === 'disabled') {
         this.logoutStudent();
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('student_kickout_reason', status);
@@ -1089,7 +1326,7 @@ class DataService {
       status,
       updatedAt: students[idx].updatedAt
     };
-    if (status === 'suspended' || status === 'blocked' || status === 'restricted') {
+    if (status === 'suspended' || status === 'blocked' || status === 'restricted' || status === 'disabled') {
       (payload as any).activeSessions = {};
     }
 
@@ -1098,7 +1335,7 @@ class DataService {
     if (isRtdbStudentsWritable) {
       update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), stripUndefinedDeep({
         status,
-        ...(status === 'suspended' || status === 'blocked' || status === 'restricted' ? { activeSessions: null } : {}),
+        ...(status === 'suspended' || status === 'blocked' || status === 'restricted' || status === 'disabled' ? { activeSessions: null } : {}),
         updatedAt: students[idx].updatedAt,
       })).catch((err) => {
         if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission_denied')) {
@@ -1123,11 +1360,22 @@ class DataService {
     const idx = students.findIndex(s => s.id === studentId);
     if (idx === -1) return false;
 
+    if (updates.passcode) {
+      updates.passcodeHash = hashPin(updates.passcode);
+    }
+    if (updates.status === 'approved' || updates.status === 'active') {
+      updates.failedLoginAttempts = 0;
+      updates.blockedReason = undefined;
+    }
+
     const updatedStudent: Student = {
       ...students[idx],
       ...updates,
       updatedAt: new Date().toISOString()
     };
+    if (updates.status === 'approved' || updates.status === 'active') {
+      delete (updatedStudent as any).blockedReason;
+    }
 
     students[idx] = updatedStudent;
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
@@ -1274,6 +1522,293 @@ class DataService {
 
     this.notifyListeners();
     return true;
+  }
+
+  /**
+   * Allow student to retake exam by deleting past submission and clearing question locks
+   */
+  allowStudentRetakeExam(quizId: string, studentId: string, adminEmail = 'admin@fsudmc.com'): boolean {
+    const allSessions = this.getSessions();
+    const targetSession = allSessions.find(s => s.quizId === quizId && s.studentId === studentId);
+    
+    if (targetSession) {
+      this.deleteQuizSession(targetSession.id, adminEmail);
+    }
+
+    // Clear locked questions from STORAGE_KEYS.LOCKED_PICKED_QUESTIONS
+    const lockedMap = this.getStorage<Record<string, { questionIds: string[]; pickedAt: string }>>(
+      STORAGE_KEYS.LOCKED_PICKED_QUESTIONS,
+      {}
+    );
+    const key = `${quizId}_${studentId}`;
+    if (lockedMap[key]) {
+      delete lockedMap[key];
+      this.setStorage(STORAGE_KEYS.LOCKED_PICKED_QUESTIONS, lockedMap);
+    }
+
+    // Delete from Firestore & RTDB
+    deleteDoc(doc(firestoreDb, 'studentPickedQuestions', key)).catch(() => {});
+    remove(ref(realtimeDb, `studentPickedQuestions/${key}`)).catch(() => {});
+
+    // Clear any local storage locks
+    try {
+      localStorage.removeItem(`fsudmc_locked_picks_v1_${quizId}_${studentId}`);
+      localStorage.removeItem(`fsudmc_locked_picks_v2_${quizId}_${studentId}`);
+      sessionStorage.removeItem(`quiz_session_${quizId}`);
+      sessionStorage.removeItem(`active_session_${quizId}`);
+    } catch {
+      // ignore
+    }
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'पुन: परीक्षा अनुमति',
+      target: studentId,
+      details: `${studentId} लाई क्विज ${quizId} मा पुन: परीक्षा दिन अनुमति दिइयो र विगतको सबमिसन मेटाइयो।`
+    });
+
+    this.notifyListeners();
+    return true;
+  }
+
+  /**
+   * Toggle showing past quiz questions and answers in frontend
+   */
+  toggleQuizFrontendPastQuestions(quizId: string, show: boolean, adminEmail = 'admin@fsudmc.com'): boolean {
+    const quizzes = this.getQuizzes();
+    const quiz = quizzes.find(q => q.id === quizId);
+    if (!quiz) return false;
+
+    quiz.showInFrontend = show;
+    quiz.updatedAt = new Date().toISOString();
+    this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
+
+    this.saveQuizToFirestore(quiz).catch(() => {});
+    this.saveQuizToRealtimeDb(quiz).catch(() => {});
+
+    this.addAuditLog({
+      adminEmail,
+      action: show ? 'पुराना प्रश्न फ्रन्टएन्डमा देखाइयो' : 'पुराना प्रश्न फ्रन्टएन्डबाट हटाइयो',
+      target: quizId,
+      details: `${quiz.title} का प्रश्न तथा उत्तरहरू फ्रन्टएन्डमा ${show ? 'सार्वजनिक गरियो' : 'लुकाइयो'}`
+    });
+
+    this.notifyListeners();
+    return true;
+  }
+
+  getFrontendPastQuizzes(): Quiz[] {
+    return this.getQuizzes().filter(q => q.showInFrontend === true);
+  }
+
+  // =================== PASSWORD RESET REQUESTS ===================
+
+  requestPasswordReset(params: {
+    name: string;
+    phone: string;
+    faculty?: string;
+    studentClass: string;
+    semester: string;
+    rollNo: string;
+    newPasscode: string;
+  }): { success: boolean; error?: string; message?: string; studentId?: string } {
+    const cleanName = params.name.trim().toLowerCase();
+    const cleanPhone = fromNepaliDigits(params.phone.trim()).replace(/\D/g, '');
+    const cleanClass = params.studentClass.trim().toLowerCase();
+    const cleanSemester = params.semester.trim().toLowerCase();
+    const cleanRoll = fromNepaliDigits(params.rollNo.trim()).replace(/\D/g, '');
+    const cleanPass = fromNepaliDigits(params.newPasscode.trim()).replace(/\D/g, '');
+
+    if (!cleanName || !cleanPhone || !cleanClass || !cleanSemester || !cleanRoll) {
+      return { success: false, error: 'कृपया पासवर्ड रिसेट गर्न सबै विवरणहरू (नाम, फोन, कक्षा, सेमेस्टर, रोल नम्बर) अनिवार्य भर्नुहोस्।' };
+    }
+
+    if (cleanPass.length !== 4) {
+      return { success: false, error: 'नयाँ पासकोड ठीक ४ अंकको संख्या हुनुपर्छ।' };
+    }
+
+    const students = this.getStudents();
+    const student = students.find(s => {
+      const sName = s.name.trim().toLowerCase();
+      const sPhone = fromNepaliDigits(s.phone).replace(/\D/g, '');
+      const sClass = s.class.trim().toLowerCase();
+      const sSemester = s.semester.trim().toLowerCase();
+      const sRoll = fromNepaliDigits(s.rollNo).replace(/\D/g, '');
+
+      return (
+        sName === cleanName &&
+        sPhone === cleanPhone &&
+        sClass === cleanClass &&
+        sSemester === cleanSemester &&
+        sRoll === cleanRoll
+      );
+    });
+
+    if (!student) {
+      return {
+        success: false,
+        error: 'प्रविष्ट गरिएका विवरणहरू दर्ता गरिएको कुनै पनि रेकर्डसँग मेल खाएनन्। कृपया दर्ता गर्दाको सही नाम, फोन, कक्षा, सेमेस्टर र रोल नम्बर प्रविष्ट गर्नुहोस्।'
+      };
+    }
+
+    const now = new Date().toISOString();
+    const resetRequests = this.getPasswordResetRequests();
+    
+    const existingIdx = resetRequests.findIndex(r => r.studentId === student.id && r.status === 'pending');
+    const newReq: PasswordResetRequest = {
+      id: `reset_${student.id}_${Date.now()}`,
+      studentId: student.id,
+      studentName: student.name,
+      phone: student.phone,
+      faculty: student.faculty,
+      class: student.class,
+      semester: student.semester,
+      rollNo: student.rollNo,
+      newPasscode: cleanPass,
+      status: 'pending',
+      requestedAt: now,
+    };
+
+    if (existingIdx >= 0) {
+      resetRequests[existingIdx] = newReq;
+    } else {
+      resetRequests.unshift(newReq);
+    }
+    this.setStorage(STORAGE_KEYS.PASSWORD_RESETS, resetRequests);
+
+    student.passwordResetRequest = {
+      newPasscode: cleanPass,
+      requestedAt: now,
+      status: 'pending',
+    };
+    this.setStorage(STORAGE_KEYS.STUDENTS, students);
+
+    this.saveStudentToFirestore(student).catch(() => {});
+    this.saveStudentToRealtimeDb(student).catch(() => {});
+    set(ref(realtimeDb, `passwordResetRequests/${newReq.id}`), newReq).catch(() => {});
+    setDoc(doc(firestoreDb, 'passwordResetRequests', newReq.id), newReq).catch(() => {});
+
+    this.addAuditLog({
+      adminEmail: 'system',
+      action: 'पासवर्ड रिसेट अनुरोध',
+      target: student.id,
+      details: `${student.name} (${student.id}) ले पासवर्ड परिवर्तनको अनुरोध गर्नुभयो।`
+    });
+
+    this.notifyListeners();
+
+    return {
+      success: true,
+      studentId: student.id,
+      message: `तपाईंका सम्पूर्ण विवरणहरू प्रमाणित भएका छन्! नयाँ पासवर्डको अनुरोध व्यवस्थापक (Admin) समक्ष पठाइएको छ। व्यवस्थापकले स्वीकृत गरेपछि तपाईंको नयाँ पासवर्ड सक्रिय हुनेछ।`
+    };
+  }
+
+  getPasswordResetRequests(): PasswordResetRequest[] {
+    return this.getStorage<PasswordResetRequest[]>(STORAGE_KEYS.PASSWORD_RESETS, []);
+  }
+
+  async approvePasswordReset(requestId: string, adminEmail = 'admin@fsudmc.com'): Promise<{ success: boolean; error?: string }> {
+    const requests = this.getPasswordResetRequests();
+    const req = requests.find(r => r.id === requestId);
+    if (!req) return { success: false, error: 'अनुरोध भेटिएन।' };
+
+    const students = this.getStudents();
+    const student = students.find(s => s.id === req.studentId);
+    if (!student) return { success: false, error: 'विद्यार्थी भेटिएन।' };
+
+    const now = new Date().toISOString();
+    student.passcode = req.newPasscode;
+    student.passcodeHash = hashPin(req.newPasscode);
+    student.failedLoginAttempts = 0;
+    if (student.status === 'blocked' || student.status === 'restricted') {
+      student.status = 'approved';
+      student.blockedReason = undefined;
+    }
+    student.passwordResetRequest = {
+      newPasscode: req.newPasscode,
+      requestedAt: req.requestedAt,
+      status: 'approved',
+    };
+    student.updatedAt = now;
+
+    req.status = 'approved';
+    req.reviewedAt = now;
+    req.reviewedBy = adminEmail;
+
+    this.setStorage(STORAGE_KEYS.STUDENTS, students);
+    this.setStorage(STORAGE_KEYS.PASSWORD_RESETS, requests);
+
+    this.saveStudentToFirestore(student).catch(() => {});
+    this.saveStudentToRealtimeDb(student).catch(() => {});
+    update(ref(realtimeDb, `passwordResetRequests/${req.id}`), { status: 'approved', reviewedAt: now, reviewedBy: adminEmail }).catch(() => {});
+    updateDoc(doc(firestoreDb, 'passwordResetRequests', req.id), { status: 'approved', reviewedAt: now, reviewedBy: adminEmail }).catch(() => {});
+
+    this.sendNotification({
+      title: 'पासवर्ड परिवर्तन स्वीकृत भयो 🔑',
+      message: 'तपाईंको नयाँ पासवर्डको अनुरोध व्यवस्थापकद्वारा स्वीकृत गरिएको छ। अब नयाँ पासवर्ड प्रयोग गरी लगइन गर्नुहोस्।',
+      targetType: 'specific',
+      targetStudentId: student.id,
+      targetStudentName: student.name,
+      type: 'success',
+      adminEmail,
+    });
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'पासवर्ड रिसेट स्वीकृत',
+      target: student.id,
+      details: `${student.name} (${student.id}) को नयाँ पासवर्ड स्वीकृत गरियो।`
+    });
+
+    this.notifyListeners();
+    return { success: true };
+  }
+
+  async rejectPasswordReset(requestId: string, adminEmail = 'admin@fsudmc.com'): Promise<{ success: boolean; error?: string }> {
+    const requests = this.getPasswordResetRequests();
+    const req = requests.find(r => r.id === requestId);
+    if (!req) return { success: false, error: 'अनुरोध भेटिएन।' };
+
+    const students = this.getStudents();
+    const student = students.find(s => s.id === req.studentId);
+    if (student && student.passwordResetRequest) {
+      student.passwordResetRequest.status = 'rejected';
+      this.setStorage(STORAGE_KEYS.STUDENTS, students);
+      this.saveStudentToFirestore(student).catch(() => {});
+      this.saveStudentToRealtimeDb(student).catch(() => {});
+    }
+
+    const now = new Date().toISOString();
+    req.status = 'rejected';
+    req.reviewedAt = now;
+    req.reviewedBy = adminEmail;
+
+    this.setStorage(STORAGE_KEYS.PASSWORD_RESETS, requests);
+    update(ref(realtimeDb, `passwordResetRequests/${req.id}`), { status: 'rejected', reviewedAt: now, reviewedBy: adminEmail }).catch(() => {});
+    updateDoc(doc(firestoreDb, 'passwordResetRequests', req.id), { status: 'rejected', reviewedAt: now, reviewedBy: adminEmail }).catch(() => {});
+
+    if (student) {
+      this.sendNotification({
+        title: 'पासवर्ड परिवर्तन अस्वीकृत ⚠️',
+        message: 'तपाईंको नयाँ पासवर्डको अनुरोध व्यवस्थापकद्वारा अस्वीकृत गरिएको छ। विस्तृत जानकारीका लागि क्याम्पस प्रशासनमा सम्पर्क गर्नुहोस्।',
+        targetType: 'specific',
+        targetStudentId: student.id,
+        targetStudentName: student.name,
+        type: 'warning',
+        adminEmail,
+      });
+    }
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'पासवर्ड रिसेट अस्वीकृत',
+      target: req.studentId,
+      details: `${req.studentName} (${req.studentId}) को पासवर्ड अनुरोध अस्वीकृत गरियो।`
+    });
+
+    this.notifyListeners();
+    return { success: true };
   }
 
   async approveStudentApplication(
@@ -1686,16 +2221,14 @@ class DataService {
     }
   }
 
-  async getStudentFromFirebase(studentIdOrIdentifier: string): Promise<Student | null> {
-    const raw = fromNepaliDigits(studentIdOrIdentifier.trim());
+  async getStudentFromFirebase(studentIdOnly: string): Promise<Student | null> {
+    const raw = fromNepaliDigits(studentIdOnly.trim());
     if (!raw) return null;
     const queryUpper = raw.toUpperCase();
 
-    // 0. Check local cache first
+    // 0. Check local cache first strictly by ID
     const local = this.getStudents();
-    const localFound = local.find(
-      s => s.id.toUpperCase() === queryUpper || s.username.toUpperCase() === queryUpper || s.phone === raw || s.rollNo.toUpperCase() === queryUpper
-    );
+    const localFound = local.find(s => s.id.toUpperCase() === queryUpper);
     if (localFound) return localFound;
 
     try {
@@ -1720,31 +2253,6 @@ class DataService {
       const [firestoreRes, rtdbRes] = await Promise.all([firestoreDirectPromise, rtdbPromise]);
       if (firestoreRes) return firestoreRes;
       if (rtdbRes) return rtdbRes;
-
-      // 2. Query Firestore by phone if 10-digit number
-      if (/^\d{10}$/.test(raw)) {
-        const qPhone = query(collection(firestoreDb, 'students'), where('phone', '==', raw));
-        const snapPhone = await getDocs(qPhone);
-        if (!snapPhone.empty) {
-          return snapPhone.docs[0].data() as Student;
-        }
-      }
-
-      // 3. Query Firestore by rollNo if 1 to 5 digits
-      if (/^\d{1,5}$/.test(raw)) {
-        const qRoll = query(collection(firestoreDb, 'students'), where('rollNo', '==', raw));
-        const snapRoll = await getDocs(qRoll);
-        if (!snapRoll.empty) {
-          return snapRoll.docs[0].data() as Student;
-        }
-      }
-
-      // 4. Fallback search by username
-      const qUser = query(collection(firestoreDb, 'students'), where('username', '==', queryUpper));
-      const snapUser = await getDocs(qUser);
-      if (!snapUser.empty) {
-        return snapUser.docs[0].data() as Student;
-      }
     } catch (err) {
       if (!isOfflineOrUnavailableError(err)) {
         console.debug('getStudentFromFirebase notice:', err);
@@ -2359,6 +2867,7 @@ class DataService {
       });
 
       this.notifyListeners();
+      triggerSystemNotification(newNotif.title, newNotif.message, newNotif.id);
       return { success: true, notification: newNotif };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

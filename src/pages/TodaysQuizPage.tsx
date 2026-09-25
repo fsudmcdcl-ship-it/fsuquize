@@ -138,19 +138,52 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
           </div>
         </div>
 
-        {/* Rules & Integrity Warning */}
-        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-5 mb-8">
-          <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2 mb-3">
-            <ShieldCheck className="w-4 h-4 text-amber-700" />
-            <span>क्विज नियम तथा निर्देशनहरू:</span>
-          </h3>
-          <ul className="text-xs text-amber-950/80 space-y-2 list-disc list-inside leading-relaxed">
-            <li>क्विज सुरु हुनासाथ १० मिनेटको काउन्टडाउन सुरु हुनेछ।</li>
-            <li>५ वटा फरक सेटबाट स्वचालित रूपमा १० प्रश्नहरू छानिनेछन्।</li>
-            <li>१० मिनेट समाप्त भएमा उत्तरहरू स्वतः सुरक्षित र बुझाइनेछ।</li>
-            <li>एक विद्यार्थीले एक सातामा एकपटक मात्र आधिकारिक प्रयास गर्न पाउनेछन्।</li>
-            <li>समय र प्राप्त अंकका आधारमा स्वतः निष्पक्ष विजेता निर्धारण गरिनेछ।</li>
-          </ul>
+        {/* Rules & Winning Conditions */}
+        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-5 mb-8 space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-amber-900 flex items-center gap-2 mb-2">
+              <ShieldCheck className="w-4 h-4 text-amber-700" />
+              <span>क्विज नियम तथा निर्देशनहरू:</span>
+            </h3>
+            <ul className="text-xs text-amber-950/80 space-y-1.5 list-disc list-inside leading-relaxed">
+              <li>क्विज सुरु हुनासाथ १० मिनेटको काउन्टडाउन सुरु हुनेछ।</li>
+              <li>५ वटा फरक सेटबाट स्वचालित रूपमा १० प्रश्नहरू छानिनेछन्।</li>
+              <li>१० मिनेट समाप्त भएमा उत्तरहरू स्वतः सुरक्षित र बुझाइनेछ।</li>
+              <li>एक विद्यार्थीले एक सातामा एकपटक मात्र आधिकारिक प्रयास गर्न पाउनेछन्।</li>
+            </ul>
+          </div>
+
+          <div className="pt-3 border-t border-amber-200/80">
+            <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+              <span>🏆</span>
+              <span>विजेता छनोटका ३ अनिवार्य नियमहरू (Rules of Winning):</span>
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+              <div className="p-3 bg-white/90 rounded-xl border border-amber-200 text-xs shadow-2xs">
+                <div className="font-bold text-amber-950 mb-0.5 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-amber-200 text-amber-900 font-black text-[10px] flex items-center justify-center shrink-0">१</span>
+                  <span>सर्वोच्च अंक (Highest Score)</span>
+                </div>
+                <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">सबैभन्दा बढी अंक प्राप्त गर्ने विद्यार्थी पहिलो प्राथमिकतामा पर्नेछन्।</p>
+              </div>
+
+              <div className="p-3 bg-white/90 rounded-xl border border-amber-200 text-xs shadow-2xs">
+                <div className="font-bold text-amber-950 mb-0.5 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-amber-200 text-amber-900 font-black text-[10px] flex items-center justify-center shrink-0">२</span>
+                  <span>न्यूनतम समय (Shortest Time)</span>
+                </div>
+                <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">अंक बराबर भएमा कम समयमा क्विज पूरा गर्ने विद्यार्थीलाई दोस्रो सर्त अनुसार प्राथमिकता दिइनेछ।</p>
+              </div>
+
+              <div className="p-3 bg-white/90 rounded-xl border border-amber-200 text-xs shadow-2xs">
+                <div className="font-bold text-amber-950 mb-0.5 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-amber-200 text-amber-900 font-black text-[10px] flex items-center justify-center shrink-0">३</span>
+                  <span>गोलाप्रथा (Lottery Draw)</span>
+                </div>
+                <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">अंक र समय दुवै समान भएमा गोलाप्रथा (Lottery Draw) मार्फत शीर्ष ३ विजेता चयन गरिनेछ।</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Action Button Section */}

@@ -11,8 +11,8 @@ interface RegisterPageProps {
 
 export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentRegistered }) => {
   const [name, setName] = useState('');
-  const [faculty, setFaculty] = useState<'Management' | 'Humanity' | 'Arts'>('Management');
-  const [studentClass, setStudentClass] = useState('BBS 1st Year');
+  const [faculty, setFaculty] = useState<'Management' | 'Humanity' | 'Art'>('Management');
+  const [studentClass, setStudentClass] = useState('');
   const [semester, setSemester] = useState('प्रथम वर्ष / Semester');
   const [rollNo, setRollNo] = useState('');
   const [phone, setPhone] = useState('');
@@ -191,7 +191,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
               {registrationSuccess.id}
             </div>
             <div className="mt-2 pt-2 border-t border-slate-200/80 text-xs text-slate-600 flex items-center justify-center gap-3">
-              <span>संकाय: <b className="text-slate-800">{registrationSuccess.faculty || 'व्यवस्थापन'}</b></span>
+              <span>संकाय: <b className="text-slate-800">{registrationSuccess.faculty === 'Art' ? 'कला (Art)' : registrationSuccess.faculty === 'Humanity' ? 'मानविकी (Humanity)' : 'व्यवस्थापन (Management)'}</b></span>
               <span>•</span>
               <span>कक्षा: <b className="text-slate-800">{registrationSuccess.class}</b></span>
             </div>
@@ -313,21 +313,21 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
               required
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="उदा. समीर अधिकारी"
+              placeholder="आफ्नो पूरा नाम प्रविष्ट गर्नुहोस्"
               className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium"
             />
           </div>
 
-          {/* Faculty (संकाय) Selection */}
+          {/* Faculty (संकाय) Selection: Art, Humanity, and Management */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
               संकाय (Faculty) *
             </label>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {[
-                { id: 'Management', name: 'व्यवस्थापन', en: 'Management', icon: '💼' },
-                { id: 'Humanity', name: 'मानविकी', en: 'Humanities', icon: '📖' },
-                { id: 'Arts', name: 'कला', en: 'Arts', icon: '🎨' },
+                { id: 'Art' as const, name: 'कला', en: 'Art', icon: '🎨' },
+                { id: 'Humanity' as const, name: 'मानविकी', en: 'Humanity', icon: '📖' },
+                { id: 'Management' as const, name: 'व्यवस्थापन', en: 'Management', icon: '💼' },
               ].map(f => {
                 const isSelected = faculty === f.id;
                 return (
@@ -335,12 +335,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                     key={f.id}
                     type="button"
                     onClick={() => {
-                      setFaculty(f.id as any);
-                      if (f.id === 'Management') setStudentClass('BBS 1st Year');
-                      else if (f.id === 'Humanity') setStudentClass('BA 1st Year');
-                      else setStudentClass('Arts 1st Year');
+                      setFaculty(f.id);
                     }}
-                    className={`py-3 px-3 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
+                    className={`py-3 px-2 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-1 ${
                       isSelected
                         ? 'border-red-500 bg-red-50/70 text-red-700 ring-2 ring-red-400 font-bold shadow-xs'
                         : 'border-slate-200 bg-slate-50/70 text-slate-700 hover:bg-slate-100 font-medium'
@@ -368,13 +365,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                   required
                   value={studentClass}
                   onChange={e => setStudentClass(e.target.value)}
-                  placeholder={
-                    faculty === 'Management'
-                      ? 'उदा. BBS 1st Year, BBA, MBS'
-                      : faculty === 'Humanity'
-                      ? 'उदा. BA 1st Year, MA, आदि'
-                      : 'उदा. Arts 1st Year, कक्षा ११ Arts'
-                  }
+                  placeholder="आफ्नो कक्षा प्रविष्ट गर्नुहोस्"
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium"
                 />
               </div>
@@ -408,9 +399,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                 </span>
                 {(faculty === 'Management'
                   ? ['BBS 1st Year', 'BBS 2nd Year', 'BBS 3rd Year', 'BBS 4th Year', 'BBA', 'MBS']
-                  : faculty === 'Humanity'
-                  ? ['BA 1st Year', 'BA 2nd Year', 'BA 3rd Year', 'BA 4th Year', 'MA']
-                  : ['Arts 1st Year', 'Arts 2nd Year', 'कक्षा ११ (Arts)', 'कक्षा १२ (Arts)', 'BFA']
+                  : faculty === 'Art'
+                  ? ['BA 1st Year (Art)', 'BA 2nd Year (Art)', 'BA 3rd Year (Art)', 'BA 4th Year', 'MA Art']
+                  : ['BA 1st Year', 'BA 2nd Year', 'BA 3rd Year', 'BA 4th Year', 'MA 1st Year', 'MA 2nd Year']
                 ).map(chip => (
                   <button
                     key={chip}
@@ -440,7 +431,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                 required
                 value={rollNo}
                 onChange={e => setRollNo(fromNepaliDigits(e.target.value))}
-                placeholder="उदा. 25"
+                placeholder="आफ्नो रोल नम्बर प्रविष्ट गर्नुहोस्"
                 className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium"
               />
             </div>
@@ -455,7 +446,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate, onStudentR
                 maxLength={10}
                 value={phone}
                 onChange={e => setPhone(fromNepaliDigits(e.target.value).replace(/\D/g, ''))}
-                placeholder="उदा. 9812345678"
+                placeholder="आफ्नो मोबाइल नम्बर प्रविष्ट गर्नुहोस्"
                 className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-medium font-mono"
               />
             </div>

@@ -282,6 +282,53 @@ export const HomePage: React.FC<HomePageProps> = ({
               </p>
             </div>
           </div>
+
+          {/* 3 Mandatory Rules of Winning */}
+          <div className="mt-8 pt-6 border-t border-slate-200">
+            <div className="text-center mb-6">
+              <span className="text-[11px] font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full uppercase tracking-wider">
+                नियम तथा मापदण्ड
+              </span>
+              <h3 className="text-xl font-black text-slate-900 mt-2">
+                🏆 विजेता छनोटका ३ अनिवार्य नियमहरू (Rules of Winning)
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                विजेता घोषणा गर्दा क्याम्पस प्रशासनद्वारा पूर्ण निष्पक्ष र स्वचालित मापदण्ड अपनाइनेछ:
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 p-5 rounded-2xl border border-amber-200 relative shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black text-sm flex items-center justify-center mb-2.5 shadow-xs">
+                  १
+                </div>
+                <h4 className="font-bold text-slate-900 text-sm mb-1">सर्वोच्च अंक (Highest Score)</h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  सबैभन्दा पहिलो प्राथमिकता प्राप्तांकलाई दिइनेछ। सबैभन्दा बढी अंक (१० पूर्णाङ्क) प्राप्त गर्ने विद्यार्थी पहिलो प्राथमिकतामा पर्नेछन्।
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50/50 p-5 rounded-2xl border border-blue-200 relative shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white font-black text-sm flex items-center justify-center mb-2.5 shadow-xs">
+                  २
+                </div>
+                <h4 className="font-bold text-slate-900 text-sm mb-1">न्यूनतम समय (Shortest Time)</h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  यदि दुई वा सोभन्दा बढी विद्यार्थीहरूको अंक बराबर भएमा, कम समय (छिटो सेकेन्ड) मा क्विज पूरा गर्ने विद्यार्थीलाई अगाडि राखिनेछ।
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-rose-50 to-red-50/50 p-5 rounded-2xl border border-rose-200 relative shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-rose-600 text-white font-black text-sm flex items-center justify-center mb-2.5 shadow-xs">
+                  ३
+                </div>
+                <h4 className="font-bold text-slate-900 text-sm mb-1">गोलाप्रथा (Lottery Draw)</h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  यदि अंक र समय दुवै ठ्याक्कै समान भएमा, पारदर्शी गोलाप्रथा (Lucky Draw / Lottery Wheel) मार्फत शीर्ष ३ विजेताहरू (१st, २nd, ३rd) छनोट गरिनेछ।
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* Security & Authenticity Banner */}

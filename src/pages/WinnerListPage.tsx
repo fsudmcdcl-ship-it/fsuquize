@@ -103,6 +103,53 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
         </div>
       </div>
 
+      {/* 3 Official Winning Criteria Card */}
+      <div className="bg-amber-50/80 border border-amber-200 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/80 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🏆</span>
+            <h3 className="text-sm font-black text-amber-950 uppercase tracking-wide">
+              विजेता छनोटका ३ आधिकारिक नियमहरू (Rules of Winning)
+            </h3>
+          </div>
+          <span className="text-[11px] font-semibold text-amber-800">
+            निष्पक्ष, पारदर्शी र स्वचालित प्रणाली
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+          <div className="bg-white/90 p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+            <div className="flex items-center gap-2 font-bold text-xs text-amber-950 mb-1">
+              <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] flex items-center justify-center shrink-0">१</span>
+              <span>१. सर्वोच्च अंक (Highest Score)</span>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              सबैभन्दा पहिलो प्राथमिकता प्राप्तांकलाई दिइन्छ। सबैभन्दा बढी अंक प्राप्त गर्ने विद्यार्थी पहिलो प्राथमिकतामा पर्नेछन्।
+            </p>
+          </div>
+
+          <div className="bg-white/90 p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+            <div className="flex items-center gap-2 font-bold text-xs text-blue-950 mb-1">
+              <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">२</span>
+              <span>२. न्यूनतम समय (Shortest Time)</span>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              यदि दुई वा सोभन्दा बढी विद्यार्थीहरूको अंक बराबर भएमा, कम समय (छिटो सेकेन्ड) मा क्विज पूरा गर्ने विद्यार्थी विजेता हुनेछन्।
+            </p>
+          </div>
+
+          <div className="bg-white/90 p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+            <div className="flex items-center gap-2 font-bold text-xs text-rose-950 mb-1">
+              <span className="w-5 h-5 rounded-full bg-rose-600 text-white font-black text-[10px] flex items-center justify-center shrink-0">३</span>
+              <span>३. गोलाप्रथा (Lottery Draw)</span>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              यदि अंक र समय दुवै ठ्याक्कै समान भएमा, पारदर्शी गोलाप्रथा (Lottery / Lucky Draw) मार्फत शीर्ष ३ विजेता छनोट गरिनेछ।
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Latest Quiz Winners Podium */}
       {latestWinner ? (
         <div className="space-y-6">

@@ -35,11 +35,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
           { label: 'गृहपृष्ठ', path: '/', icon: Award },
           { label: 'आवेदन स्थिति', path: '/pending', icon: Clock },
           { label: 'विजेता सूची', path: '/winner-list', icon: Trophy },
+          { label: 'पुराना प्रश्नोत्तर', path: '/past-questions', icon: BookOpen },
         ]
       : [
           { label: 'ड्यासबोर्ड', path: '/dashboard', icon: BarChart2 },
           { label: 'आजको क्विज', path: '/todays-quize', icon: BookOpen },
           { label: 'विजेता सूची', path: '/winner-list', icon: Trophy },
+          { label: 'पुराना प्रश्नोत्तर', path: '/past-questions', icon: BookOpen },
           { label: 'मेरो स्थिति', path: '/my-status', icon: CheckCircle },
           { label: 'प्रोफाइल', path: '/profile', icon: User },
         ]
@@ -47,6 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
         { label: 'गृहपृष्ठ', path: '/', icon: Award },
         { label: 'आजको क्विज', path: '/todays-quize', icon: BookOpen },
         { label: 'विजेता सूची', path: '/winner-list', icon: Trophy },
+        { label: 'पुराना प्रश्नोत्तर', path: '/past-questions', icon: BookOpen },
         { label: 'लगइन', path: '/login', icon: User, highlight: true },
       ];
 
@@ -58,20 +61,20 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
       {/* Top Banner: Nepali Date & Time (NPT +5:45) + Campus Contact */}
-      <div className="bg-slate-900 text-slate-200 text-xs py-1.5 px-4 sm:px-6 lg:px-8 border-b border-slate-800">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1.5 text-[11px] sm:text-xs">
-          <div className="flex items-center gap-2 font-medium text-amber-300">
+      <div className="bg-slate-900 text-slate-200 text-xs py-1.5 px-3 sm:px-6 lg:px-8 border-b border-slate-800">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1 text-[11px] sm:text-xs text-center sm:text-left">
+          <div className="flex items-center gap-1.5 font-medium text-amber-300">
             <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="font-mono tracking-tight">{liveNepaliDateTime}</span>
           </div>
 
-          <div className="flex items-center gap-4 text-slate-300">
-            <span className="flex items-center gap-1.5 hover:text-white transition">
-              <Phone className="w-3 h-3 text-red-400" />
-              <span>सम्पर्क: ९७४१८२३१२२</span>
+          <div className="flex items-center gap-2.5 sm:gap-4 text-slate-300 flex-wrap justify-center">
+            <span className="flex items-center gap-1 hover:text-white transition">
+              <Phone className="w-3 h-3 text-red-400 shrink-0" />
+              <span>९७४१८२३१२२</span>
             </span>
             <span className="hidden md:inline-flex items-center gap-1.5 hover:text-white transition">
-              <Mail className="w-3 h-3 text-red-400" />
+              <Mail className="w-3 h-3 text-red-400 shrink-0" />
               <span>info@fsudmc.com</span>
             </span>
             {/* Direct button to main campus website fsudmc.com */}
@@ -79,9 +82,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
               href="https://fsudmc.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-700/80 hover:bg-red-600 text-white font-bold transition shadow-xs text-[11px]"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-700/80 hover:bg-red-600 text-white font-bold transition shadow-xs text-[10px] sm:text-[11px]"
             >
-              <span>मुख्य क्याम्पस वेबसाइट</span>
+              <span>क्याम्पस वेबसाइट</span>
               <ExternalLink className="w-3 h-3" />
             </a>
           </div>
@@ -89,26 +92,26 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate, student, 
       </div>
 
       {/* Main Navbar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16 sm:h-20">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16 sm:h-20 gap-2">
           {/* Logo / Branding */}
           <div
             onClick={() => handleNav(student ? (isPending ? '/pending' : '/dashboard') : '/')}
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-w-0"
           >
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-red-600 via-rose-600 to-amber-500 flex items-center justify-center text-white font-black text-2xl shadow-md shadow-red-500/25 group-hover:scale-105 transition-transform">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-red-600 via-rose-600 to-amber-500 flex items-center justify-center text-white font-black text-xl sm:text-2xl shadow-md shadow-red-500/25 group-hover:scale-105 transition-transform shrink-0">
               🎓
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-black text-base sm:text-lg text-slate-900 tracking-tight">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="font-black text-sm sm:text-lg text-slate-900 tracking-tight truncate">
                   दार्चुला बहुमुखी क्याम्पस
                 </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 hidden lg:inline-block">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 hidden lg:inline-block shrink-0">
                   स्ववियु (FSU)
                 </span>
               </div>
-              <p className="text-[11px] sm:text-xs text-slate-500 font-medium leading-tight">
+              <p className="text-[10px] sm:text-xs text-slate-500 font-medium leading-tight truncate">
                 साप्ताहिक हाजिरी जवाफ पोर्टल • Darchula Multiple Campus
               </p>
             </div>

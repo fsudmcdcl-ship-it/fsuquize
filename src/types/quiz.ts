@@ -5,7 +5,8 @@ export type StudentStatus =
   | 'active'
   | 'suspended'
   | 'blocked'
-  | 'restricted';
+  | 'restricted'
+  | 'disabled';
 
 export interface DeviceSession {
   deviceId: string;
@@ -25,13 +26,20 @@ export interface Student {
   name: string;
   email?: string;
   rollNo: string;
-  faculty?: 'Management' | 'Humanity' | 'Arts' | string;
+  faculty?: 'Management' | 'Humanity' | 'Art' | string;
   class: string; // e.g., BBS 1st Year, BA 2nd Year, etc. (filled by student themselves)
   semester: string; // e.g., प्रथम, दोस्रो, तेस्रो, etc.
   phone: string;
   username: string; // e.g., FSU25678
   passcode?: string; // stored locally in session/localStorage
   passcodeHash?: string; // deterministic obfuscated hash for cross-device & cloud verification
+  failedLoginAttempts?: number; // 3 wrong attempts triggers block
+  blockedReason?: string;
+  passwordResetRequest?: {
+    newPasscode: string;
+    requestedAt: string;
+    status: 'pending' | 'approved' | 'rejected';
+  };
   role?: 'student';
   authEmail?: string;
   profilePhoto?: string;
@@ -65,8 +73,25 @@ export interface Quiz {
   questionCount: number; // 10 per session
   totalBankQuestions: number; // 50 in bank
   status: QuizStatus;
+  showInFrontend?: boolean; // whether past question & answers are published to frontend
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface PasswordResetRequest {
+  id: string;
+  studentId: string;
+  studentName: string;
+  phone: string;
+  faculty?: string;
+  class: string;
+  semester: string;
+  rollNo: string;
+  newPasscode: string;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 export type QuestionOption = 'A' | 'B' | 'C' | 'D';

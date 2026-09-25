@@ -19,6 +19,7 @@ import { WinnerListPage } from './pages/WinnerListPage';
 import { MyStatusPage } from './pages/MyStatusPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { AccountPendingPage } from './pages/AccountPendingPage';
+import { PastQuestionsPage } from './pages/PastQuestionsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 // Admin Portal Components & Pages
@@ -197,11 +198,26 @@ export default function App() {
     const unsubRtdb = onValue(
       studentRtdbRef,
       (snapshot) => {
-        if (!snapshot.exists()) return;
+        if (!snapshot.exists()) {
+          // Student account was permanently deleted by admin
+          dataService.logoutStudent();
+          setCurrentStudent(null);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('student_kickout_reason', 'deleted');
+          }
+          navigate('/login');
+          return;
+        }
         const data = snapshot.val() as Student;
         if (!data) return;
 
-        if (data.status === 'suspended' || data.status === 'blocked' || data.status === 'restricted') {
+        if (
+          data.status === 'suspended' ||
+          data.status === 'blocked' ||
+          data.status === 'restricted' ||
+          data.status === 'disabled' ||
+          (data.status as string) === 'disabled'
+        ) {
           dataService.logoutStudent();
           setCurrentStudent(null);
           if (typeof window !== 'undefined') {
@@ -221,11 +237,26 @@ export default function App() {
     const unsubDoc = onSnapshot(
       doc(firestoreDb, 'students', currentStudent.id),
       (docSnap) => {
-        if (!docSnap.exists()) return;
+        if (!docSnap.exists()) {
+          // Student account was permanently deleted from Firestore by admin
+          dataService.logoutStudent();
+          setCurrentStudent(null);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('student_kickout_reason', 'deleted');
+          }
+          navigate('/login');
+          return;
+        }
         const data = docSnap.data() as Student;
         if (!data) return;
 
-        if (data.status === 'suspended' || data.status === 'blocked' || data.status === 'restricted') {
+        if (
+          data.status === 'suspended' ||
+          data.status === 'blocked' ||
+          data.status === 'restricted' ||
+          data.status === 'disabled' ||
+          (data.status as string) === 'disabled'
+        ) {
           dataService.logoutStudent();
           setCurrentStudent(null);
           if (typeof window !== 'undefined') {
@@ -675,6 +706,13 @@ export default function App() {
       <WinnerListPage
         winners={allWinners}
         navigate={navigate}
+      />
+    );
+  } else if (currentPath === '/past-questions') {
+    studentPageContent = (
+      <PastQuestionsPage
+        navigate={navigate}
+        quizzes={quizzes}
       />
     );
   } else if (currentPath === '/my-status') {

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { Quiz, QuizStatus } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
-import { BookOpen, Plus, Trash2, CheckCircle2, Clock, Calendar, AlertCircle, Edit3, X, Check, Sparkles } from 'lucide-react';
+import { BookOpen, Plus, Trash2, CheckCircle2, Clock, Calendar, AlertCircle, Edit3, X, Check, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { AiQuestionPickerModal } from './components/AiQuestionPickerModal';
 
 interface AdminQuizzesProps {
@@ -193,6 +193,41 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
                   <span className={availability.isExpired ? 'text-red-500' : 'text-emerald-600'}>
                     {availability.text}
                   </span>
+                </div>
+
+                {/* Past Question Frontend Publication Toggle */}
+                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                    <span>पुराना प्रश्नोत्तर:</span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !quiz.showInFrontend;
+                      dataService.toggleQuizFrontendPastQuestions(quiz.id, next, 'admin@fsudmc.com');
+                      onRefresh();
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                      quiz.showInFrontend
+                        ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300'
+                        : 'bg-slate-100 text-slate-600 hover:bg-purple-50 hover:text-purple-700 border border-slate-200'
+                    }`}
+                    title={quiz.showInFrontend ? 'प्रकाशन बन्द गर्नुहोस् (फ्रन्टएन्डबाट हटाउनुहोस्)' : 'फ्रन्टएन्डमा विद्यार्थीलाई देखाउनुहोस्'}
+                  >
+                    {quiz.showInFrontend ? (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>फ्रन्टएन्डमा सक्रिय ✓</span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                        <span>फ्रन्टएन्डमा देखाउनुहोस्</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 

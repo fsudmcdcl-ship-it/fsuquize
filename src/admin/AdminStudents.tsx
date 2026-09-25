@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import type { Student, StudentStatus, QuizSession } from '../types/quiz';
-import { toNepaliDigits, formatNepalDate } from '../lib/nepaliUtils';
+import type { Student, StudentStatus, QuizSession, PasswordResetRequest } from '../types/quiz';
+import { toNepaliDigits, fromNepaliDigits, formatNepalDate } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
 import {
   Search,
@@ -56,10 +56,16 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [selectedStudentForNotification, setSelectedStudentForNotification] = useState<string | undefined>(undefined);
 
+  // Unblock & Reset Password Modal State
+  const [unblockingStudent, setUnblockingStudent] = useState<Student | null>(null);
+  const [newUnblockPasscode, setNewUnblockPasscode] = useState('');
+  const [unblockError, setUnblockError] = useState('');
+
   // Edit Student Modal State
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [editName, setEditName] = useState('');
   const [editRollNo, setEditRollNo] = useState('');
+  const [editFaculty, setEditFaculty] = useState<'Management' | 'Humanity' | 'Art'>('Management');
   const [editClass, setEditClass] = useState('BCA');
   const [editSemester, setEditSemester] = useState('प्रथम');
   const [editPhone, setEditPhone] = useState('');
@@ -71,8 +77,46 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [previewPhotoStudent, setPreviewPhotoStudent] = useState<Student | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'students' | 'password_resets'>('students');
+  const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>(() => dataService.getPasswordResetRequests());
 
   const t = adminTranslations[lang];
+
+  useEffect(() => {
+    setResetRequests(dataService.getPasswordResetRequests());
+    const unsub = dataService.subscribe(() => {
+      setResetRequests(dataService.getPasswordResetRequests());
+    });
+    return unsub;
+  }, []);
+
+  const pendingResetCount = resetRequests.filter(r => r.status === 'pending').length;
+
+  const handleApproveReset = async (id: string) => {
+    setActionLoadingId(id);
+    const res = await dataService.approvePasswordReset(id, 'admin@fsudmc.com');
+    setActionLoadingId(null);
+    if (res.success) {
+      showToast('विद्यार्थीको नयाँ पासवर्ड सफलतापूर्वक स्वीकृत गरियो। विद्यार्थीलाई नयाँ पासवर्ड सक्रिय भएको सूचना पठाइयो।');
+      setResetRequests(dataService.getPasswordResetRequests());
+      onRefresh();
+    } else {
+      showToast('पासवर्ड स्वीकृत गर्न असफल: ' + (res.error || 'अज्ञात समस्या'));
+    }
+  };
+
+  const handleRejectReset = async (id: string) => {
+    setActionLoadingId(id);
+    const res = await dataService.rejectPasswordReset(id, 'admin@fsudmc.com');
+    setActionLoadingId(null);
+    if (res.success) {
+      showToast('विद्यार्थीको पासवर्ड परिवर्तन अनुरोध अस्वीकृत गरियो।');
+      setResetRequests(dataService.getPasswordResetRequests());
+      onRefresh();
+    } else {
+      showToast('अस्वीकृत गर्न असफल: ' + (res.error || 'अज्ञात समस्या'));
+    }
+  };
 
   // Listen to language changes from storage
   useEffect(() => {
@@ -216,6 +260,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
     setEditingStudent(student);
     setEditName(student.name);
     setEditRollNo(student.rollNo);
+    setEditFaculty(student.faculty === 'Art' ? 'Art' : student.faculty === 'Humanity' ? 'Humanity' : 'Management');
     setEditClass(student.class);
     setEditSemester(student.semester);
     setEditPhone(student.phone);
@@ -252,6 +297,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
       const updates: Partial<Student> = {
         name: editName.trim(),
         rollNo: editRollNo.trim(),
+        faculty: editFaculty,
         class: editClass,
         semester: editSemester,
         phone: editPhone.trim(),
@@ -270,8 +316,33 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
     }
   };
 
-  const getStatusBadge = (status: StudentStatus) => {
-    switch (status) {
+  const handleUnblockAndProvidePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unblockingStudent) return;
+    const cleanPass = newUnblockPasscode.trim().replace(/\D/g, '');
+    if (!cleanPass || cleanPass.length !== 4) {
+      setUnblockError(lang === 'ne' ? 'पासकोड ठ्याक्कै ४ अंकको हुनुपर्छ।' : 'Passcode must be exactly 4 digits.');
+      return;
+    }
+
+    const res = dataService.unblockAndResetStudentPassword(unblockingStudent.id, cleanPass, 'admin@fsudmc.com');
+    if (res.success) {
+      onRefresh();
+      setUnblockingStudent(null);
+      setNewUnblockPasscode('');
+      setUnblockError('');
+      showToast(
+        lang === 'ne'
+          ? `विद्यार्थी ${unblockingStudent.name} (ID: ${unblockingStudent.id}) को खाता सफलतापूर्वक अनब्लक गरियो र नयाँ पासकोड (${cleanPass}) प्रदान गरियो।`
+          : `Student ${unblockingStudent.name} successfully unblocked with new passcode ${cleanPass}.`
+      );
+    } else {
+      setUnblockError(res.error || 'अनब्लक गर्न सकिएन');
+    }
+  };
+
+  const getStatusBadge = (student: Student) => {
+    switch (student.status) {
       case 'pending':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
@@ -284,7 +355,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <span>{status === 'approved' ? t.statusApproved : t.statusActive}</span>
+            <span>{student.status === 'approved' ? t.statusApproved : t.statusActive}</span>
           </span>
         );
       case 'suspended':
@@ -296,9 +367,19 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
         );
       case 'blocked':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            <span>{t.statusBlocked}</span>
+          <span
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200"
+            title={student.blockedReason || '३ पटक गलत पासवर्ड वा प्रशासनद्वारा ब्लक गरिएको'}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+            <span>{student.failedLoginAttempts && student.failedLoginAttempts >= 3 ? (lang === 'ne' ? 'ब्लक (३ गलत PIN)' : 'Blocked (3 PIN Fail)') : t.statusBlocked}</span>
+          </span>
+        );
+      case 'disabled':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+            <span>{lang === 'ne' ? 'निष्क्रिय (Disabled)' : 'Disabled'}</span>
           </span>
         );
       case 'rejected':
@@ -313,7 +394,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-            <span>{t.statusRestricted}</span>
+            <span>{student.status}</span>
           </span>
         );
     }
@@ -372,6 +453,55 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
         </div>
       </div>
 
+      {/* Sub Tabs: Students List vs Password Reset Requests */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('students')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeTab === 'students'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span>विद्यार्थी सूची ({students.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('password_resets')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer relative ${
+              activeTab === 'password_resets'
+                ? 'bg-red-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>पासवर्ड रिसेट अनुरोधहरू ({resetRequests.length})</span>
+            {pendingResetCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black animate-pulse">
+                {pendingResetCount} पेन्डिङ
+              </span>
+            )}
+          </button>
+        </div>
+
+        {activeTab === 'students' && pendingResetCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('password_resets')}
+            className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span>{pendingResetCount} वटा नयाँ पासवर्ड रिसेट अनुरोध आएको छ &rarr;</span>
+          </button>
+        )}
+      </div>
+
+      {activeTab === 'students' ? (
+        <>
       {/* Search & Filter Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative w-full sm:w-80">
@@ -491,7 +621,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                     </td>
 
                     <td className="py-3 px-4">
-                      {getStatusBadge(student.status)}
+                      {getStatusBadge(student)}
                     </td>
 
                     <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
@@ -500,6 +630,21 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
 
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {/* Unblock & Provide Password for Blocked Students */}
+                        {student.status === 'blocked' && (
+                          <button
+                            onClick={() => {
+                              setUnblockingStudent(student);
+                              setNewUnblockPasscode(student.passcode || '1234');
+                              setUnblockError('');
+                            }}
+                            title={lang === 'ne' ? 'खाता अनब्लक र नयाँ पासवर्ड प्रदान गर्नुहोस्' : 'Unblock & Provide Password'}
+                            className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-[11px] flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                          >
+                            <KeyRound className="w-3 h-3 text-slate-950" />
+                            <span>{lang === 'ne' ? 'अनब्लक / पासवर्ड' : 'Unblock'}</span>
+                          </button>
+                        )}
                         {/* Pending Application Review Actions */}
                         {student.status === 'pending' && (
                           <>
@@ -643,18 +788,143 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
           </table>
         </div>
       </div>
+      </>
+      ) : (
+        /* Password Reset Requests Table View */
+        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
+            <div>
+              <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-red-600" />
+                <span>विद्यार्थी पासवर्ड रिसेट अनुरोधहरू (Password Reset Requests)</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                विद्यार्थीले नाम, फोन, कक्षा, सेमेस्टर र रोल नम्बर प्रमाणित गरी पेस गरेका नयाँ पासवर्ड परिवर्तन अनुरोधहरू
+              </p>
+            </div>
+            <span className="text-xs font-bold text-slate-700 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+              कुल अनुरोध: <b>{resetRequests.length}</b> ({pendingResetCount} पेन्डिङ)
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3.5 px-4">विद्यार्थी विवरण</th>
+                  <th className="py-3.5 px-4">कक्षा / सेमेस्टर / रोल</th>
+                  <th className="py-3.5 px-4">सम्पर्क फोन</th>
+                  <th className="py-3.5 px-4 text-center">अनुरोध गरिएको नयाँ पासकोड</th>
+                  <th className="py-3.5 px-4">अनुरोध मिति</th>
+                  <th className="py-3.5 px-4 text-center">स्थिति</th>
+                  <th className="py-3.5 px-4 text-right">एडमिन कारबाही (Actions)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                {resetRequests.length > 0 ? (
+                  resetRequests.map(req => (
+                    <tr key={req.id} className="hover:bg-slate-50/70 transition">
+                      <td className="py-3.5 px-4">
+                        <div>
+                          <span className="font-bold text-slate-900 block text-sm">{req.studentName}</span>
+                          <span className="text-[11px] text-slate-400 font-mono">{req.studentId}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="font-bold text-slate-800 block">{req.class}</span>
+                        <span className="text-[11px] text-slate-500">
+                          {req.semester} | रोल: {toNepaliDigits(req.rollNo)}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono font-semibold text-slate-700">
+                        {req.phone}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="font-mono font-black text-sm px-3 py-1 rounded-xl bg-amber-50 text-amber-900 border border-amber-300">
+                          {toNepaliDigits(req.newPasscode)}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-500 whitespace-nowrap">
+                        {formatNepalDate(req.requestedAt)}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        {req.status === 'pending' ? (
+                          <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-bold text-[10px] inline-flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse"></span>
+                            पेन्डिङ (स्वीकृति आवश्यक)
+                          </span>
+                        ) : req.status === 'approved' ? (
+                          <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] inline-flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" />
+                            स्वीकृत (सक्रिय)
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 font-bold text-[10px] inline-flex items-center gap-1">
+                            <X className="w-3 h-3 text-rose-600" />
+                            अस्वीकृत
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        {req.status === 'pending' ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleApproveReset(req.id)}
+                              disabled={actionLoadingId === req.id}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1 transition shadow-2xs cursor-pointer disabled:opacity-50"
+                              title="यो नयाँ पासकोड स्वीकृत गरी विद्यार्थीलाई सक्रिय गर्नुहोस्"
+                            >
+                              {actionLoadingId === req.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <CheckCircle className="w-3.5 h-3.5" />
+                              )}
+                              <span>स्वीकृत गर्नुहोस्</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRejectReset(req.id)}
+                              disabled={actionLoadingId === req.id}
+                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl text-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                              title="पासवर्ड परिवर्तन अनुरोध अस्वीकार गर्नुहोस्"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>अस्वीकार</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">
+                            {req.reviewedBy ? `स्वीकृतकर्ता: ${req.reviewedBy}` : 'सम्पन्न'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      हाल कुनै पनि पासवर्ड रिसेट अनुरोध छैन।
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Edit Student Modal */}
       {editingStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-5 animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-7 shadow-2xl space-y-4 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
                   <Edit className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-slate-900">{t.editStudentTitle}</h3>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900">{t.editStudentTitle}</h3>
                   <p className="text-[11px] text-slate-500 font-mono">ID: {editingStudent.id}</p>
                 </div>
               </div>
@@ -673,7 +943,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
               </div>
             )}
 
-            <form onSubmit={handleSaveEdit} className="space-y-4">
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
                   {t.fieldFullName}
@@ -687,7 +957,22 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    {lang === 'ne' ? 'संकाय (Faculty) *' : 'Faculty *'}
+                  </label>
+                  <select
+                    value={editFaculty}
+                    onChange={e => setEditFaculty(e.target.value as 'Management' | 'Humanity' | 'Art')}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  >
+                    <option value="Art">कला (Art)</option>
+                    <option value="Humanity">मानविकी (Humanity)</option>
+                    <option value="Management">व्यवस्थापन (Management)</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
                     {t.fieldClass}
@@ -706,7 +991,9 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                     <option value="M.Ed">M.Ed</option>
                   </select>
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
                     {t.fieldSemester}
@@ -719,9 +1006,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
                     {t.fieldRoll}
@@ -734,7 +1019,9 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-mono"
                   />
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
                     {t.fieldPhone}
@@ -748,9 +1035,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-mono"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
                     {t.fieldPasscode}
@@ -764,39 +1049,40 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-mono tracking-widest"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    {t.fieldStatus}
-                  </label>
-                  <select
-                    value={editStatus}
-                    onChange={e => setEditStatus(e.target.value as StudentStatus)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                  >
-                    <option value="pending">{t.statusPending}</option>
-                    <option value="approved">{t.statusApproved}</option>
-                    <option value="active">{t.statusActive}</option>
-                    <option value="suspended">{t.statusSuspended}</option>
-                    <option value="blocked">{t.statusBlocked}</option>
-                    <option value="restricted">{t.statusRestricted}</option>
-                    <option value="rejected">{t.statusRejected}</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  {t.fieldStatus}
+                </label>
+                <select
+                  value={editStatus}
+                  onChange={e => setEditStatus(e.target.value as StudentStatus)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                >
+                  <option value="pending">{t.statusPending}</option>
+                  <option value="approved">{t.statusApproved}</option>
+                  <option value="active">{t.statusActive}</option>
+                  <option value="suspended">{t.statusSuspended}</option>
+                  <option value="blocked">{t.statusBlocked}</option>
+                  <option value="disabled">{lang === 'ne' ? 'निष्क्रिय (Disabled)' : 'Disabled'}</option>
+                  <option value="restricted">{t.statusRestricted}</option>
+                  <option value="rejected">{t.statusRejected}</option>
+                </select>
               </div>
 
               <div className="flex gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setEditingStudent(null)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
                 >
                   {t.btnCancel}
                 </button>
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Save className="w-4 h-4" />
                   <span>{isSaving ? t.savingStudent : t.btnSaveStudent}</span>
@@ -961,6 +1247,85 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                 बन्द गर्नुहोस् (Close)
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Master Admin Unblock & Provide Password Modal */}
+      {unblockingStudent && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    {lang === 'ne' ? 'खाता अनब्लक र नयाँ पासवर्ड प्रदान' : 'Unblock Account & Assign Password'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    ID: {unblockingStudent.id} • {unblockingStudent.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUnblockingStudent(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {unblockError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
+                <span>{unblockError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUnblockAndProvidePassword} className="space-y-4">
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl text-xs text-amber-900 space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <span>ℹ️</span>
+                  <span>खाता अनब्लक प्रक्रिया:</span>
+                </p>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  ३ पटक लगातार गलत पासवर्ड प्रविष्ट भएका कारण वा सुरक्षाका लागि यो खाता ब्लक भएको हो। नयाँ ४-अंकको पासकोड (PIN) राखेर अनब्लक गर्नुहोस् र विद्यार्थीलाई प्रदान गर्नुहोस्।
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  {lang === 'ne' ? 'नयाँ ४-अंकको पासकोड (New 4-Digit PIN) *' : 'New 4-Digit PIN *'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={4}
+                  value={newUnblockPasscode}
+                  onChange={e => setNewUnblockPasscode(fromNepaliDigits(e.target.value).replace(/\D/g, ''))}
+                  placeholder="उदा. 1234"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-amber-500 text-base font-mono font-bold tracking-widest text-center"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setUnblockingStudent(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                >
+                  {t.btnCancel}
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow transition flex items-center justify-center gap-1.5"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  <span>{lang === 'ne' ? 'अनब्लक र पासवर्ड सेट गर्नुहोस्' : 'Unblock & Save'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

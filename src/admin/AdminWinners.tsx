@@ -74,35 +74,27 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
   const thirdCandidate = quizSubmissions[2];
 
   // Detect ties in top candidates (same score and same time)
-  const isTopTied =
+  const isTopTied = Boolean(
     firstCandidate &&
     secondCandidate &&
     firstCandidate.score === secondCandidate.score &&
-    firstCandidate.timeTakenSeconds === secondCandidate.timeTakenSeconds;
+    firstCandidate.timeTakenSeconds === secondCandidate.timeTakenSeconds
+  );
 
+  // Gather all submissions tied with the top score and time for fair lottery draw
   const tiedParticipants: WinnerEntry[] = isTopTied
-    ? [
-        {
-          studentId: firstCandidate.studentId,
-          name: firstCandidate.studentName,
-          rollNo: firstCandidate.studentRoll,
-          class: firstCandidate.studentClass,
-          semester: firstCandidate.studentSemester,
-          score: firstCandidate.score,
-          timeTakenSeconds: firstCandidate.timeTakenSeconds,
-          profilePhoto: firstCandidate.studentPhoto,
-        },
-        {
-          studentId: secondCandidate.studentId,
-          name: secondCandidate.studentName,
-          rollNo: secondCandidate.studentRoll,
-          class: secondCandidate.studentClass,
-          semester: secondCandidate.studentSemester,
-          score: secondCandidate.score,
-          timeTakenSeconds: secondCandidate.timeTakenSeconds,
-          profilePhoto: secondCandidate.studentPhoto,
-        },
-      ]
+    ? quizSubmissions
+        .filter(s => s.score === firstCandidate.score && s.timeTakenSeconds === firstCandidate.timeTakenSeconds)
+        .map(s => ({
+          studentId: s.studentId,
+          name: s.studentName,
+          rollNo: s.studentRoll,
+          class: s.studentClass,
+          semester: s.studentSemester,
+          score: s.score,
+          timeTakenSeconds: s.timeTakenSeconds,
+          profilePhoto: s.studentPhoto,
+        }))
     : [];
 
   const handlePublishWinners = () => {
@@ -454,6 +446,30 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Official Rules of Winning Reference */}
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🏆</span>
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              विजेता छनोटका ३ अनिवार्य नियमहरू (Rules of Winning)
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+            <div className="p-3 bg-white rounded-xl border border-slate-200">
+              <span className="font-bold text-slate-900 block text-[11px] mb-0.5">१. सर्वोच्च अंक (Highest Score)</span>
+              <p className="text-[11px] text-slate-500">सबैभन्दा बढी अंक प्राप्त गर्ने विद्यार्थी पहिलो प्राथमिकतामा पर्छन्।</p>
+            </div>
+            <div className="p-3 bg-white rounded-xl border border-slate-200">
+              <span className="font-bold text-slate-900 block text-[11px] mb-0.5">२. न्यूनतम समय (Shortest Time)</span>
+              <p className="text-[11px] text-slate-500">अंक बराबर भएमा कम समय (छिटो) मा बुझाउने विद्यार्थी विजेता बन्छन्।</p>
+            </div>
+            <div className="p-3 bg-white rounded-xl border border-slate-200">
+              <span className="font-bold text-slate-900 block text-[11px] mb-0.5">३. गोलाप्रथा (Lottery Draw)</span>
+              <p className="text-[11px] text-slate-500">अंक र समय दुवै समान भएमा गोलाप्रथा (Lucky Draw Wheel) बाट ३ विजेता छानिन्छन्।</p>
+            </div>
+          </div>
         </div>
 
         {/* Tie Alert */}

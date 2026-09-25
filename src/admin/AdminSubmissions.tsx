@@ -15,7 +15,8 @@ import {
   UserX,
   AlertTriangle,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import { exportQuizSubmissionsToExcel } from '../lib/excelExport';
 import { ParticipantsScorePoster } from './components/ParticipantsScorePoster';
@@ -41,6 +42,7 @@ export const AdminSubmissions: React.FC<AdminSubmissionsProps> = ({
   const [showScorePoster, setShowScorePoster] = useState(false);
 
   // Deletion modals state
+  const [retakeConfirmSession, setRetakeConfirmSession] = useState<QuizSession | null>(null);
   const [deleteConfirmSession, setDeleteConfirmSession] = useState<QuizSession | null>(null);
   const [deleteConfirmStudent, setDeleteConfirmStudent] = useState<{
     studentId: string;
@@ -72,6 +74,19 @@ export const AdminSubmissions: React.FC<AdminSubmissionsProps> = ({
   const handleExport = () => {
     if (!activeQuiz) return;
     exportQuizSubmissionsToExcel(activeQuiz, filteredSessions, questions);
+  };
+
+  // Allow retake and delete past submission
+  const handleRetakeConfirm = () => {
+    if (!retakeConfirmSession) return;
+    const s = retakeConfirmSession;
+    dataService.allowStudentRetakeExam(s.quizId, s.studentId, 'admin@fsudmc.com');
+    setRetakeConfirmSession(null);
+    if (inspectSession?.id === s.id) {
+      setInspectSession(null);
+    }
+    onRefresh?.();
+    showToast(`विद्यार्थी ${s.studentName} लाई फेरि परीक्षा दिन अनुमति दिइयो र विगतको सबमिसन मेटाइयो।`);
   };
 
   // Delete only the single quiz attempt/session
@@ -267,6 +282,17 @@ export const AdminSubmissions: React.FC<AdminSubmissionsProps> = ({
                           <span className="hidden sm:inline">उत्तर</span>
                         </button>
 
+                        {/* Allow retake exam and delete submission */}
+                        <button
+                          type="button"
+                          onClick={() => setRetakeConfirmSession(s)}
+                          className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 hover:border-blue-300 font-bold rounded-lg flex items-center gap-1 transition cursor-pointer"
+                          title="यो सबमिसन मेटाई विद्यार्थीलाई फेरि परीक्षा दिन अनुमति दिनुहोस्"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
+                          <span className="hidden sm:inline">पुन: परीक्षा</span>
+                        </button>
+
                         {/* Delete this single quiz attempt */}
                         <button
                           type="button"
@@ -307,6 +333,54 @@ export const AdminSubmissions: React.FC<AdminSubmissionsProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Allow Retake Exam & Delete Past Submission Confirmation Modal */}
+      {retakeConfirmSession && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto text-2xl font-bold">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-lg font-black text-slate-900">
+                पुन: परीक्षा दिने सुविधा र सबमिसन मेटाउने पुष्टि
+              </h3>
+              <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                के तपाईं विद्यार्थी <b>{retakeConfirmSession.studentName}</b> (ID: <span className="font-mono">{retakeConfirmSession.studentId}</span> | रोल: {toNepaliDigits(retakeConfirmSession.studentRoll)}) को पुरानो सबमिसन मेटाई फेरि परीक्षा दिन अनुमति दिन निश्चित हुनुहुन्छ?
+              </p>
+              <div className="mt-3 p-3 bg-blue-50 rounded-2xl border border-blue-200 text-[11px] text-blue-900 text-left space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5 text-blue-600" />
+                  <span>यो कार्य गरेपछि हुने परिवर्तनहरू:</span>
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-[11px] text-blue-800">
+                  <li>पुरानो सबमिसन (प्राप्त अंक: <b>{toNepaliDigits(retakeConfirmSession.score)}/१०</b>) प्रणालीबाट पूर्ण रूपमा मेटिनेछ।</li>
+                  <li>विद्यार्थीका लागि सुरक्षित गरिएका लक्ड प्रश्नहरू रिसेट हुनेछन्।</li>
+                  <li>विद्यार्थीले आफ्नो डिभाइसमा आजको क्विज फेरि नयाँ रूपमा सुरु गर्न पाउनेछन्।</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRetakeConfirmSession(null)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                रद्द गर्नुहोस्
+              </button>
+              <button
+                type="button"
+                onClick={handleRetakeConfirm}
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>पुन: परीक्षा दिन दिनुहोस्</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Single Submission Confirmation Modal */}
       {deleteConfirmSession && (

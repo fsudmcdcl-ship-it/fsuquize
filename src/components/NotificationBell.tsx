@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Student, AppNotification } from '../types/quiz';
-import { dataService } from '../lib/dataService';
-import { Bell, CheckCheck, Info, CheckCircle, AlertTriangle, Flame, X, MessageSquare, Clock } from 'lucide-react';
+import { dataService, triggerSystemNotification } from '../lib/dataService';
+import { Bell, CheckCheck, Info, CheckCircle, AlertTriangle, Flame, X, MessageSquare, Clock, BellRing } from 'lucide-react';
 
 interface NotificationBellProps {
   student: Student | null;
@@ -15,7 +15,30 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ student }) =
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [permission, setPermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const handleRequestPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const res = await Notification.requestPermission();
+        setPermission(res);
+        if (res === 'granted') {
+          triggerSystemNotification(
+            'दार्चुला बहुमुखी क्याम्पस स्ववियु',
+            'मोबाइल नोटिफिकेसन सक्रिय भयो! अब हरेक नयाँ क्विज र सूचना तपाईंको फोन नोटिफिकेसनमा आउनेछ।'
+          );
+        }
+      } catch (e) {
+        console.debug('Permission request notice:', e);
+      }
+    }
+  };
 
   const loadNotifications = () => {
     const notifs = dataService.getNotificationsForStudent(student?.id);
@@ -113,6 +136,35 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ student }) =
               </button>
             </div>
           </div>
+
+          {/* Phone Notification Permission Prompt */}
+          {typeof window !== 'undefined' && 'Notification' in window && permission !== 'granted' && (
+            <div className="bg-amber-50 p-3 border-b border-amber-200 text-xs flex items-center justify-between gap-2 text-amber-900">
+              <div className="flex items-center gap-2">
+                <BellRing className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="text-[11px] leading-tight font-medium">
+                  क्विज सूचना मोबाइलमा पाउन अनुमति दिनुहोस्
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleRequestPermission}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[10px] shrink-0 cursor-pointer shadow-2xs"
+              >
+                अनुमति दिनुहोस्
+              </button>
+            </div>
+          )}
+
+          {typeof window !== 'undefined' && 'Notification' in window && permission === 'granted' && (
+            <div className="bg-emerald-50 px-3 py-1.5 border-b border-emerald-100 text-[10px] font-bold text-emerald-800 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>मोबाइल नोटिफिकेसन अलर्ट सक्रिय छ</span>
+              </span>
+              <span className="text-[10px] text-emerald-600 font-semibold">✓ Enabled</span>
+            </div>
+          )}
 
           {/* Notification List */}
           <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">

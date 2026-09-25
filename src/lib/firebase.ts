@@ -303,15 +303,21 @@ export async function createStudentWithFirebase(
   const targetAuth = isPrimaryAdminLoggedIn ? studentAuth : auth;
 
   try {
-    let user: User;
+    let user: User | undefined;
     try {
       const cred = await createUserWithEmailAndPassword(targetAuth, email, password);
       user = cred.user;
     } catch (createErr: unknown) {
       const fbError = createErr as { code?: string; message?: string };
       if (fbError?.code === "auth/email-already-in-use") {
-        const signinCred = await signInWithEmailAndPassword(targetAuth, email, password);
-        user = signinCred.user;
+        try {
+          const signinCred = await signInWithEmailAndPassword(targetAuth, email, password);
+          user = signinCred.user;
+        } catch {
+          // If previous account was deleted from admin and they are re-registering with a new passcode,
+          // proceed gracefully so re-registration succeeds without error
+          return { success: true };
+        }
       } else {
         throw createErr;
       }

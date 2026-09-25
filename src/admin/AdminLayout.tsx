@@ -177,28 +177,28 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       )}
 
       {/* Mobile Top Header */}
-      <div className="md:hidden bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800 sticky top-0 z-40">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center font-bold">
+      <div className="md:hidden bg-slate-900 text-white px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between border-b border-slate-800 sticky top-0 z-40">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center font-bold shrink-0">
             🛡️
           </div>
-          <div>
-            <span className="font-extrabold text-sm block">{t.portalTitle}</span>
-            <span className="text-[10px] text-slate-400 font-mono">/{adminSlug}</span>
+          <div className="min-w-0 truncate">
+            <span className="font-extrabold text-xs sm:text-sm block truncate">{t.portalTitle}</span>
+            <span className="text-[10px] text-slate-400 font-mono block truncate">/{adminSlug}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <button
             onClick={() => setIsNotificationModalOpen(true)}
-            className="p-1.5 rounded-lg bg-blue-600 text-white"
+            className="p-1.5 rounded-lg bg-blue-600 text-white cursor-pointer"
             title={lang === 'ne' ? 'नयाँ सूचना पठाउनुहोस्' : 'Send Notification'}
           >
             <Bell className="w-4 h-4" />
           </button>
           <button
             onClick={handleLanguageToggle}
-            className="p-1.5 rounded-lg bg-slate-800 text-xs font-bold text-slate-300 border border-slate-700"
+            className="p-1.5 rounded-lg bg-slate-800 text-xs font-bold text-slate-300 border border-slate-700 cursor-pointer"
             title="Language"
           >
             <Globe className="w-4 h-4 text-red-400" />
@@ -206,7 +206,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           <button
             onClick={handleRefreshDatabase}
             disabled={isRefreshing}
-            className="p-1.5 rounded-lg bg-slate-800 text-slate-200 hover:text-white"
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-200 hover:text-white cursor-pointer"
             title={t.refreshDatabase}
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-red-400' : ''}`} />
@@ -214,19 +214,27 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           <button
             onClick={handleGlobalLive}
             disabled={isPublishingLive}
-            className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+            className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer"
             title={t.publishGlobalLive}
           >
             <Radio className={`w-4 h-4 ${isPublishingLive ? 'animate-pulse text-emerald-200' : ''}`} />
           </button>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-lg bg-slate-800 text-slate-200"
+            className="p-1.5 sm:p-2 rounded-lg bg-slate-800 text-slate-200 cursor-pointer"
           >
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
+
+      {/* Mobile Sidebar Backdrop Overlay */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-25 md:hidden"
+        />
+      )}
 
       {/* Sidebar Navigation */}
       <aside
