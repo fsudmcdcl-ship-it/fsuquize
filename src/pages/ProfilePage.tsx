@@ -149,14 +149,24 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <h2 className="text-2xl font-black text-slate-900">{student.name}</h2>
               <span
                 className={`text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                  student.status === 'active'
+                  student.status === 'active' || student.status === 'approved'
                     ? 'bg-emerald-100 text-emerald-800'
-                    : student.status === 'restricted'
+                    : student.status === 'pending'
                     ? 'bg-amber-100 text-amber-800'
+                    : student.status === 'restricted'
+                    ? 'bg-purple-100 text-purple-800'
                     : 'bg-red-100 text-red-800'
                 }`}
               >
-                {student.status === 'active' ? 'सक्रिय खाता' : student.status === 'restricted' ? 'प्रतिबन्धित' : 'ब्लक'}
+                {student.status === 'active' || student.status === 'approved'
+                  ? 'सक्रिय खाता'
+                  : student.status === 'pending'
+                  ? 'स्वीकृति प्रतीक्षामा (Pending)'
+                  : student.status === 'restricted'
+                  ? 'प्रतिबन्धित'
+                  : student.status === 'suspended'
+                  ? 'निलम्बित'
+                  : 'ब्लक गरिएको'}
               </span>
             </div>
             <p className="text-xs text-slate-500 font-mono font-bold">

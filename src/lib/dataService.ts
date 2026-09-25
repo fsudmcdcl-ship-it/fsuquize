@@ -315,11 +315,22 @@ class DataService {
           if (snapshot.exists()) {
             const val = snapshot.val();
             const rtdbStudents: Student[] = typeof val === 'object' && val !== null ? Object.values(val) : [];
-            if (Array.isArray(rtdbStudents) && rtdbStudents.length > 0) {
+            if (Array.isArray(rtdbStudents)) {
+              const liveIds = new Set(rtdbStudents.map(s => s.id));
               const currentList = this.getStudents();
               const map = new Map<string, Student>();
-              for (const s of currentList) map.set(s.id, s);
-              let hasChanged = false;
+              const now = Date.now();
+
+              // Retain current students that either still exist in RTDB or were freshly created in last 20s
+              for (const s of currentList) {
+                if (liveIds.has(s.id)) {
+                  map.set(s.id, s);
+                } else if (s.appliedAt && now - new Date(s.appliedAt).getTime() < 20000) {
+                  map.set(s.id, s);
+                }
+              }
+
+              let hasChanged = map.size !== currentList.length;
 
               for (const r of rtdbStudents) {
                 if (r && r.id) {
@@ -332,7 +343,8 @@ class DataService {
                     existing.phone !== r.phone ||
                     existing.rollNo !== r.rollNo ||
                     existing.class !== r.class ||
-                    existing.semester !== r.semester
+                    existing.semester !== r.semester ||
+                    existing.reExamAllowed !== r.reExamAllowed
                   ) {
                     map.set(r.id, { ...existing, ...r });
                     hasChanged = true;
@@ -347,21 +359,16 @@ class DataService {
                 const cur = this.getStorage<Student | null>(STORAGE_KEYS.CURRENT_STUDENT, null);
                 if (cur) {
                   const match = updatedList.find(s => s.id === cur.id);
-                  if (!match) {
-                    // Account was deleted from backend: automatically logout!
-                    this.logoutStudent();
-                    if (typeof window !== 'undefined') {
-                      sessionStorage.setItem('student_kickout_reason', 'deleted');
-                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
+                  if (match) {
+                    if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'disabled') {
+                      this.logoutStudent();
+                      if (typeof window !== 'undefined') {
+                        sessionStorage.setItem('student_kickout_reason', match.status);
+                        window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
+                      }
+                    } else if (match.status !== cur.status || match.name !== cur.name || match.reExamAllowed !== cur.reExamAllowed) {
+                      this.setCurrentStudent({ ...cur, ...match });
                     }
-                  } else if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted' || match.status === 'disabled') {
-                    this.logoutStudent();
-                    if (typeof window !== 'undefined') {
-                      sessionStorage.setItem('student_kickout_reason', match.status);
-                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
-                    }
-                  } else if (match && (match.status !== cur.status || match.name !== cur.name)) {
-                    this.setCurrentStudent(match);
                   }
                 }
                 this.notifyListeners();
@@ -542,9 +549,14 @@ class DataService {
               }
             });
             if (list.length > 0) {
+              const liveSessionIds = new Set(list.map(s => s.id));
               const currentSessions = this.getSessions();
               const sMap = new Map<string, QuizSession>();
-              for (const s of currentSessions) sMap.set(s.id, s);
+              for (const s of currentSessions) {
+                if (liveSessionIds.has(s.id)) {
+                  sMap.set(s.id, s);
+                }
+              }
               for (const s of list) {
                 if (s && s.id) sMap.set(s.id, s);
               }
@@ -604,10 +616,21 @@ class DataService {
               }
             });
             if (list.length > 0) {
+              const liveIds = new Set(list.map(s => s.id));
               const currentList = this.getStudents();
               const sMap = new Map<string, Student>();
-              for (const s of currentList) sMap.set(s.id, s);
-              let hasChanged = false;
+              const now = Date.now();
+
+              // Only keep existing students if they exist in Firestore OR were locally created in the last 20 seconds
+              for (const s of currentList) {
+                if (liveIds.has(s.id)) {
+                  sMap.set(s.id, s);
+                } else if (s.appliedAt && now - new Date(s.appliedAt).getTime() < 20000) {
+                  sMap.set(s.id, s);
+                }
+              }
+
+              let hasChanged = sMap.size !== currentList.length;
 
               for (const r of list) {
                 if (r && r.id) {
@@ -622,7 +645,8 @@ class DataService {
                     existing.class !== r.class ||
                     existing.semester !== r.semester ||
                     existing.profilePhoto !== r.profilePhoto ||
-                    existing.appliedAt !== r.appliedAt
+                    existing.appliedAt !== r.appliedAt ||
+                    existing.reExamAllowed !== r.reExamAllowed
                   ) {
                     sMap.set(r.id, { ...existing, ...r });
                     hasChanged = true;
@@ -634,25 +658,19 @@ class DataService {
                 const updatedList = Array.from(sMap.values());
                 this.setStorage(STORAGE_KEYS.STUDENTS, updatedList);
 
-                // Auto-logout ONLY if current logged-in student account is suspended or blocked
                 const cur = this.getStorage<Student | null>(STORAGE_KEYS.CURRENT_STUDENT, null);
                 if (cur) {
                   const match = sMap.get(cur.id);
-                  if (!match) {
-                    // Account was deleted from backend: automatically logout!
-                    this.logoutStudent();
-                    if (typeof window !== 'undefined') {
-                      sessionStorage.setItem('student_kickout_reason', 'deleted');
-                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
+                  if (match) {
+                    if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'disabled') {
+                      this.logoutStudent();
+                      if (typeof window !== 'undefined') {
+                        sessionStorage.setItem('student_kickout_reason', match.status);
+                        window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
+                      }
+                    } else if (match.status !== cur.status || match.name !== cur.name || match.reExamAllowed !== cur.reExamAllowed) {
+                      this.setCurrentStudent({ ...cur, ...match });
                     }
-                  } else if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted' || match.status === 'disabled') {
-                    this.logoutStudent();
-                    if (typeof window !== 'undefined') {
-                      sessionStorage.setItem('student_kickout_reason', match.status);
-                      window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
-                    }
-                  } else if (match && (match.status !== cur.status || match.name !== cur.name)) {
-                    this.setCurrentStudent(match);
                   }
                 }
                 this.notifyListeners();
@@ -849,11 +867,10 @@ class DataService {
 
     const studentId = this.generateStudentId(rollNoClean, phoneClean);
 
-    // Rule: "when i reject someone's application then let them to create a new application 
-    // those who have tried to regester but that is not come in database erase them all data and let user to create a duplicate account without hesitation"
     // Find any existing accounts matching this ID, phone, or roll+class
+    // If the account was deleted in backend during admin testing, purge it immediately
     const matchingIds: string[] = [];
-    let hasApprovedAccount = false;
+    let isLiveActiveStudent = false;
 
     for (const s of students) {
       const matchId = s.id.toUpperCase() === studentId.toUpperCase();
@@ -862,23 +879,54 @@ class DataService {
 
       if (matchId || matchPhone || matchRoll) {
         if (s.status === 'approved' || s.status === 'active') {
-          hasApprovedAccount = true;
-          break;
+          // Verify with Firestore whether this account is ACTUALLY still alive in cloud
+          try {
+            const snap = await withTimeout(getDoc(doc(firestoreDb, 'students', s.id)), 2000, null);
+            if (snap && snap.exists()) {
+              const liveData = snap.data() as Student;
+              if (liveData.status === 'approved' || liveData.status === 'active') {
+                isLiveActiveStudent = true;
+              } else {
+                matchingIds.push(s.id);
+              }
+            } else {
+              // Deleted in Firestore! Purge from local cache
+              matchingIds.push(s.id);
+            }
+          } catch {
+            // On timeout or offline, don't block user from registering
+            matchingIds.push(s.id);
+          }
         } else {
-          // It was rejected or unapproved/pending - mark for complete erasure so user can create duplicate account without hesitation
+          // Pending, rejected, or old attempt - purge to allow fresh registration
           matchingIds.push(s.id);
         }
       }
     }
 
-    if (hasApprovedAccount) {
-      return {
-        success: false,
-        error: 'यो विद्यार्थी विवरण पहिले नै प्रशासनद्वारा स्वीकृत भइसकेको छ। कृपया सिधै लगइन गर्नुहोस्।'
-      };
+    // Only block if a matching account is truly active in Firestore and wasn't purged
+    if (isLiveActiveStudent && !matchingIds.includes(studentId)) {
+      // Re-verify specific studentId
+      let confirmedInCloud = false;
+      try {
+        const directSnap = await withTimeout(getDoc(doc(firestoreDb, 'students', studentId)), 1500, null);
+        if (directSnap && directSnap.exists()) {
+          const cloudData = directSnap.data() as Student;
+          if (cloudData.status === 'approved' || cloudData.status === 'active') {
+            confirmedInCloud = true;
+          }
+        }
+      } catch {}
+
+      if (confirmedInCloud) {
+        return {
+          success: false,
+          error: 'यो विद्यार्थी विवरण पहिले नै प्रशासनद्वारा स्वीकृत भइसकेको छ। कृपया सिधै लगइन गर्नुहोस्।'
+        };
+      }
     }
 
-    // Erase all rejected, unapproved, or stuck registration attempts
+    // Erase all rejected, unapproved, deleted test, or superseded registration attempts
     if (matchingIds.length > 0) {
       students = students.filter(s => !matchingIds.includes(s.id));
       this.setStorage(STORAGE_KEYS.STUDENTS, students);
@@ -888,6 +936,12 @@ class DataService {
           remove(ref(realtimeDb, `students/${safeRtdbKey(oldId)}`)).catch(() => {});
         }
       }
+    }
+
+    // Clear any stale kickout reasons from browser
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('student_kickout_reason');
+      localStorage.removeItem('student_kickout_reason');
     }
 
     const authEmail = formatStudentAuthEmail(studentId);
@@ -907,6 +961,9 @@ class DataService {
       username: studentId,
       passcode: passcodeClean,
       passcodeHash: pinHash,
+      failedLoginAttempts: 0,
+      blockedReason: undefined,
+      reExamAllowed: false,
       authEmail,
       role: 'student',
       ...(params.profilePhoto ? { profilePhoto: params.profilePhoto } : {}),
@@ -1529,9 +1586,10 @@ class DataService {
    * Allow student to retake exam by deleting past submission and clearing question locks
    */
   allowStudentRetakeExam(quizId: string, studentId: string, adminEmail = 'admin@fsudmc.com'): boolean {
+    const effectiveQuizId = quizId || this.getActiveQuiz()?.id || 'quiz_week_12';
     const allSessions = this.getSessions();
     const targetSessions = allSessions.filter(
-      s => (s.quizId === quizId || !quizId) && (s.studentId === studentId || s.id.endsWith(`_${studentId}`))
+      s => (s.quizId === effectiveQuizId || s.quizId === quizId || !quizId) && (s.studentId === studentId || s.id.endsWith(`_${studentId}`))
     );
 
     for (const targetSession of targetSessions) {
@@ -1543,11 +1601,17 @@ class DataService {
       STORAGE_KEYS.LOCKED_PICKED_QUESTIONS,
       {}
     );
-    const key = `${quizId}_${studentId}`;
+    const key = `${effectiveQuizId}_${studentId}`;
     if (lockedMap[key]) {
       delete lockedMap[key];
-      this.setStorage(STORAGE_KEYS.LOCKED_PICKED_QUESTIONS, lockedMap);
     }
+    // Also remove any key for this student
+    Object.keys(lockedMap).forEach(k => {
+      if (k.endsWith(`_${studentId}`)) {
+        delete lockedMap[k];
+      }
+    });
+    this.setStorage(STORAGE_KEYS.LOCKED_PICKED_QUESTIONS, lockedMap);
 
     // Delete from Firestore & RTDB
     deleteDoc(doc(firestoreDb, 'studentPickedQuestions', key)).catch(() => {});
@@ -1555,12 +1619,50 @@ class DataService {
 
     // Clear any local storage locks
     try {
-      localStorage.removeItem(`fsudmc_locked_picks_v1_${quizId}_${studentId}`);
-      localStorage.removeItem(`fsudmc_locked_picks_v2_${quizId}_${studentId}`);
-      sessionStorage.removeItem(`quiz_session_${quizId}`);
-      sessionStorage.removeItem(`active_session_${quizId}`);
+      localStorage.removeItem(`fsudmc_locked_picks_v1_${effectiveQuizId}_${studentId}`);
+      localStorage.removeItem(`fsudmc_locked_picks_v2_${effectiveQuizId}_${studentId}`);
+      sessionStorage.removeItem(`quiz_session_${effectiveQuizId}`);
+      sessionStorage.removeItem(`active_session_${effectiveQuizId}`);
+      sessionStorage.removeItem(`just_submitted_${effectiveQuizId}_${studentId}`);
     } catch {
       // ignore
+    }
+
+    // Set reExamAllowed flag on student
+    const now = new Date().toISOString();
+    const students = this.getStudents();
+    const sIdx = students.findIndex(s => s.id === studentId);
+    if (sIdx >= 0) {
+      students[sIdx] = {
+        ...students[sIdx],
+        reExamAllowed: true,
+        reExamQuizId: effectiveQuizId,
+        updatedAt: now,
+      };
+      this.setStorage(STORAGE_KEYS.STUDENTS, students);
+
+      setDoc(doc(firestoreDb, 'students', studentId), {
+        reExamAllowed: true,
+        reExamQuizId: effectiveQuizId,
+        updatedAt: now,
+      }, { merge: true }).catch(() => {});
+
+      if (isRtdbStudentsWritable) {
+        update(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`), {
+          reExamAllowed: true,
+          reExamQuizId: effectiveQuizId,
+          updatedAt: now,
+        }).catch(() => {});
+      }
+    }
+
+    const cur = this.getCurrentStudent();
+    if (cur && cur.id === studentId) {
+      this.setCurrentStudent({
+        ...cur,
+        reExamAllowed: true,
+        reExamQuizId: effectiveQuizId,
+      });
     }
 
     // Send in-app notification to the student
@@ -1577,7 +1679,7 @@ class DataService {
       adminEmail,
       action: 'पुन: परीक्षा अनुमति',
       target: studentId,
-      details: `${studentId} लाई क्विज ${quizId} मा पुन: परीक्षा दिन अनुमति दिइयो र विगतको सबमिसन मेटाइयो।`
+      details: `${studentId} लाई क्विज ${effectiveQuizId} मा पुन: परीक्षा दिन अनुमति दिइयो र विगतको सबमिसन मेटाइयो।`
     });
 
     this.notifyListeners();
@@ -3074,6 +3176,11 @@ class DataService {
   getPickedQuestionsForStudent(quizId: string, studentId: string): string[] | null {
     if (!quizId || !studentId) return null;
 
+    const student = this.getStudents().find(s => s.id === studentId);
+    if (student?.reExamAllowed && (student.reExamQuizId === quizId || !student.reExamQuizId)) {
+      return null;
+    }
+
     // 1. Check existing quiz session first
     const session = this.getStudentSession(quizId, studentId);
     if (session && session.selectedQuestionIds && session.selectedQuestionIds.length > 0) {
@@ -3198,6 +3305,67 @@ class DataService {
     this.notifyListeners();
   }
 
+  bulkSaveQuestions(newQuestions: Question[], adminEmail = 'admin@fsudmc.com'): { added: number; updated: number } {
+    if (!newQuestions || newQuestions.length === 0) return { added: 0, updated: 0 };
+    const questions = this.getQuestions();
+    const qMap = new Map<string, Question>(questions.map(q => [q.id, q]));
+    let added = 0;
+    let updated = 0;
+
+    for (const q of newQuestions) {
+      if (qMap.has(q.id)) {
+        updated++;
+      } else {
+        added++;
+      }
+      qMap.set(q.id, q);
+
+      // Async write to Firestore & RTDB
+      setDoc(doc(firestoreDb, 'questions', q.id), q, { merge: true }).catch(() => {});
+      if (q.quizId) {
+        setDoc(doc(firestoreDb, 'quizzes', q.quizId, 'questions', q.id), q, { merge: true }).catch(() => {});
+      }
+      set(ref(realtimeDb, `questions/${q.id}`), q).catch(() => {});
+    }
+
+    const updatedList = Array.from(qMap.values());
+    this.setStorage(STORAGE_KEYS.QUESTIONS, updatedList);
+    this.setDraftChanges(true);
+
+    this.addAuditLog({
+      adminEmail,
+      action: 'बल्क प्रश्न अपलोड',
+      target: newQuestions[0]?.quizId || 'quiz_bank',
+      details: `कुल ${newQuestions.length} वटा प्रश्नहरू (थपिएका: ${added}, अद्यावधिक: ${updated}) एकैपटक ब्याकइन्डमा सुरक्षित गरियो`
+    });
+
+    this.notifyListeners();
+    return { added, updated };
+  }
+
+  toggleQuizPastVisibility(quizId: string, showInFrontend: boolean, adminEmail = 'admin@fsudmc.com'): boolean {
+    const quizzes = this.getQuizzes();
+    const target = quizzes.find(q => q.id === quizId);
+    if (!target) return false;
+
+    target.showInFrontend = showInFrontend;
+    target.updatedAt = new Date().toISOString();
+    this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
+
+    setDoc(doc(firestoreDb, 'quizzes', quizId), { showInFrontend, updatedAt: target.updatedAt }, { merge: true }).catch(() => {});
+    update(ref(realtimeDb, `quizzes/${safeRtdbKey(quizId)}`), { showInFrontend, updatedAt: target.updatedAt }).catch(() => {});
+
+    this.addAuditLog({
+      adminEmail,
+      action: showInFrontend ? 'विगतका प्रश्नहरू सार्वजनिक' : 'विगतका प्रश्नहरू गोप्य',
+      target: quizId,
+      details: `क्विज ${target.title} का प्रश्नहरू पोर्टलको 'विगतका प्रश्नहरू' खण्डमा ${showInFrontend ? 'सार्वजनिक' : 'लुकाइयो'}`
+    });
+
+    this.notifyListeners();
+    return true;
+  }
+
   deleteQuestion(questionId: string, adminEmail = 'admin'): void {
     let questions = this.getQuestions();
     const targetQ = questions.find(q => q.id === questionId);
@@ -3232,6 +3400,10 @@ class DataService {
   }
 
   getStudentSession(quizId: string, studentId: string): QuizSession | null {
+    const student = this.getStudents().find(s => s.id === studentId) || (this.getCurrentStudent()?.id === studentId ? this.getCurrentStudent() : null);
+    if (student?.reExamAllowed && (!student.reExamQuizId || student.reExamQuizId === quizId)) {
+      return null;
+    }
     const sessions = this.getSessions(quizId);
     return sessions.find(s => s.studentId === studentId) || null;
   }
@@ -3258,6 +3430,15 @@ class DataService {
     } else {
       const pickedQuestions = this.pickAndLockQuestionsForStudent(quiz.id, student.id);
       selectedQuestionIds = pickedQuestions.map(q => q.id);
+    }
+
+    if (student.reExamAllowed) {
+      student.reExamAllowed = false;
+      this.updateStudent(student.id, { reExamAllowed: false }, 'system');
+      const cur = this.getCurrentStudent();
+      if (cur && cur.id === student.id) {
+        this.setCurrentStudent({ ...cur, reExamAllowed: false });
+      }
     }
 
     const now = new Date();

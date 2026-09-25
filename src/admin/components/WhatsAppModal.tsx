@@ -7,12 +7,20 @@ interface WhatsAppModalProps {
   isOpen: boolean;
   onClose: () => void;
   student: Student | null;
+  initialMessage?: string;
+  title?: string;
+  subtitle?: string;
+  badgeText?: string;
 }
 
 export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
   isOpen,
   onClose,
   student,
+  initialMessage,
+  title = 'WhatsApp मा जानकारी पठाउनुहोस्',
+  subtitle = 'खाता सम्बन्धी आधिकारिक सूचना',
+  badgeText,
 }) => {
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
@@ -21,10 +29,10 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
   useEffect(() => {
     if (student) {
       setPhone(student.phone || '');
-      setMessage(getAccountActiveWhatsAppMessage(student));
+      setMessage(initialMessage || getAccountActiveWhatsAppMessage(student));
       setCopied(false);
     }
-  }, [student]);
+  }, [student, initialMessage]);
 
   if (!isOpen || !student) return null;
 
@@ -46,8 +54,8 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
               <MessageSquare className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold">WhatsApp मा जानकारी पठाउनुहोस्</h3>
-              <p className="text-emerald-100 text-xs font-medium">खाता सक्रिय (Account Active) भएको सूचना</p>
+              <h3 className="text-lg font-bold">{title}</h3>
+              <p className="text-emerald-100 text-xs font-medium">{subtitle}</p>
             </div>
           </div>
           <button
@@ -65,7 +73,7 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
-                  स्वीकृत (Approved)
+                  {badgeText || (student.status === 'active' || student.status === 'approved' ? 'स्वीकृत (Approved)' : student.status)}
                 </span>
                 <span className="text-xs text-slate-500 font-medium">ID: {student.id}</span>
               </div>

@@ -62,3 +62,24 @@ ${message}
 🌐 पोर्टल लिङ्क: https://quize.fsudmc.com
 - स्वतन्त्र विद्यार्थी युनियन (स्ववियु), दार्चुला बहुमुखी क्याम्पस`;
 }
+
+export function getPasswordResetWhatsAppMessage(
+  student: {
+    name: string;
+    id: string;
+    phone?: string;
+  },
+  newPasscode?: string
+): string {
+  return `नमस्ते ${student.name} जी! 🔐
+
+दार्चुला बहुमुखी क्याम्पस (FSU DMC) साप्ताहिक हाजिरी जवाफ पोर्टलमा तपाईंको विद्यार्थी खाता (Student ID: ${student.id}) को पासकोड (PIN) सफलतापूर्वक रिसेट तथा अनब्लक गरिएको छ।
+
+🔑 तपाईंको नयाँ लगइन पासकोड (PIN): ${newPasscode ? newPasscode : 'प्रशासनद्वारा स्वीकृत पासकोड'}
+
+अब तपाईं पोर्टलमा गई आफ्नो Student ID (${student.id}) र यो नयाँ पासकोड प्रयोग गरी लगइन गर्न सक्नुहुन्छ:
+🌐 https://quize.fsudmc.com
+
+- स्वतन्त्र विद्यार्थी युनियन (स्ववियु), दार्चुला बहुमुखी क्याम्पस`;
+}
+

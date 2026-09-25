@@ -36,6 +36,7 @@ import {
 } from './adminTranslations';
 import { WhatsAppModal } from './components/WhatsAppModal';
 import { SendNotificationModal } from './components/SendNotificationModal';
+import { getPasswordResetWhatsAppMessage, getAccountActiveWhatsAppMessage } from '../lib/whatsappUtils';
 
 export type StudentFilterType = 'all' | 'attempted' | 'not_attempted' | 'active' | 'pending' | 'suspended' | 'blocked' | 'restricted';
 
@@ -56,6 +57,10 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
   // WhatsApp & Notification Modals State
   const [whatsAppStudent, setWhatsAppStudent] = useState<Student | null>(null);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [whatsAppCustomMessage, setWhatsAppCustomMessage] = useState<string | undefined>(undefined);
+  const [whatsAppTitle, setWhatsAppTitle] = useState<string | undefined>(undefined);
+  const [whatsAppSubtitle, setWhatsAppSubtitle] = useState<string | undefined>(undefined);
+  const [whatsAppBadge, setWhatsAppBadge] = useState<string | undefined>(undefined);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [selectedStudentForNotification, setSelectedStudentForNotification] = useState<string | undefined>(undefined);
 
@@ -97,12 +102,32 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
 
   const handleApproveReset = async (id: string) => {
     setActionLoadingId(id);
+    const req = resetRequests.find(r => r.id === id);
     const res = await dataService.approvePasswordReset(id, 'admin@fsudmc.com');
     setActionLoadingId(null);
     if (res.success) {
-      showToast('विद्यार्थीको नयाँ पासवर्ड सफलतापूर्वक स्वीकृत गरियो। विद्यार्थीलाई नयाँ पासवर्ड सक्रिय भएको सूचना पठाइयो।');
+      showToast('विद्यार्थीको नयाँ पासवर्ड सफलतापूर्वक स्वीकृत गरियो।');
       setResetRequests(dataService.getPasswordResetRequests());
       onRefresh();
+
+      const targetStudent = students.find(s => s.id === req?.studentId) || (req ? {
+        id: req.studentId,
+        name: req.studentName,
+        phone: req.phone,
+        rollNo: req.rollNo,
+        class: req.class,
+        semester: req.semester,
+        status: 'active'
+      } as Student : null);
+
+      if (targetStudent) {
+        setWhatsAppStudent(targetStudent);
+        setWhatsAppTitle('पासवर्ड रिसेट सूचना WhatsApp मा पठाउनुहोस्');
+        setWhatsAppSubtitle('नयाँ पासकोड स्वीकृत भएको आधिकारिक सूचना');
+        setWhatsAppBadge('पासवर्ड रिसेट सम्पन्न');
+        setWhatsAppCustomMessage(getPasswordResetWhatsAppMessage(targetStudent, req?.newPasscode));
+        setIsWhatsAppModalOpen(true);
+      }
     } else {
       showToast('पासवर्ड स्वीकृत गर्न असफल: ' + (res.error || 'अज्ञात समस्या'));
     }
@@ -162,7 +187,12 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
             ? `विद्यार्थी ${student.name} को खाता सफलतापूर्वक स्वीकृत भयो (Approved successfully)`
             : `Student ${student.name} approved successfully.`
         );
-        setWhatsAppStudent(res.student || student);
+        const approved = res.student || student;
+        setWhatsAppStudent(approved);
+        setWhatsAppTitle('WhatsApp मा जानकारी पठाउनुहोस्');
+        setWhatsAppSubtitle('खाता सक्रिय (Account Active) भएको सूचना');
+        setWhatsAppBadge('स्वीकृत (Approved)');
+        setWhatsAppCustomMessage(getAccountActiveWhatsAppMessage(approved));
         setIsWhatsAppModalOpen(true);
       } else {
         showToast(res.error || 'Approval failed');
@@ -331,7 +361,8 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
       return;
     }
 
-    const res = dataService.unblockAndResetStudentPassword(unblockingStudent.id, cleanPass, 'admin@fsudmc.com');
+    const studentToUnblock = unblockingStudent;
+    const res = dataService.unblockAndResetStudentPassword(studentToUnblock.id, cleanPass, 'admin@fsudmc.com');
     if (res.success) {
       onRefresh();
       setUnblockingStudent(null);
@@ -339,9 +370,15 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
       setUnblockError('');
       showToast(
         lang === 'ne'
-          ? `विद्यार्थी ${unblockingStudent.name} (ID: ${unblockingStudent.id}) को खाता सफलतापूर्वक अनब्लक गरियो र नयाँ पासकोड (${cleanPass}) प्रदान गरियो।`
-          : `Student ${unblockingStudent.name} successfully unblocked with new passcode ${cleanPass}.`
+          ? `विद्यार्थी ${studentToUnblock.name} (ID: ${studentToUnblock.id}) को खाता सफलतापूर्वक अनब्लक गरियो र नयाँ पासकोड (${cleanPass}) प्रदान गरियो।`
+          : `Student ${studentToUnblock.name} successfully unblocked with new passcode ${cleanPass}.`
       );
+      setWhatsAppStudent(studentToUnblock);
+      setWhatsAppTitle('खाता अनब्लक र नयाँ पासकोड WhatsApp मा पठाउनुहोस्');
+      setWhatsAppSubtitle('सुरक्षा अनब्लक तथा नयाँ PIN सूचना');
+      setWhatsAppBadge('अनब्लक सम्पन्न');
+      setWhatsAppCustomMessage(getPasswordResetWhatsAppMessage(studentToUnblock, cleanPass));
+      setIsWhatsAppModalOpen(true);
     } else {
       setUnblockError(res.error || 'अनब्लक गर्न सकिएन');
     }
@@ -1209,7 +1246,8 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                 type="button"
                 onClick={() => {
                   const s = retakeConfirmStudent;
-                  dataService.allowStudentRetakeExam('', s.id, 'admin@fsudmc.com');
+                  const activeQuizId = dataService.getActiveQuiz()?.id || '';
+                  dataService.allowStudentRetakeExam(activeQuizId, s.id, 'admin@fsudmc.com');
                   setRetakeConfirmStudent(null);
                   onRefresh();
                   showToast(`विद्यार्थी ${s.name} लाई पुन: परीक्षा दिन अनुमति दिइयो र विगतको सबमिसन मेटाइयो।`);
@@ -1228,6 +1266,10 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
         isOpen={isWhatsAppModalOpen}
         onClose={() => setIsWhatsAppModalOpen(false)}
         student={whatsAppStudent}
+        initialMessage={whatsAppCustomMessage}
+        title={whatsAppTitle}
+        subtitle={whatsAppSubtitle}
+        badgeText={whatsAppBadge}
       />
 
       {/* Send Notification Modal */}

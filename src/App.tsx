@@ -204,17 +204,15 @@ export default function App() {
     const logs = dataService.getAuditLogs();
     setAuditLogs(logs);
 
-    // Auto-logout if current student account is suspended, blocked, or deleted from backend
+    // Auto-logout ONLY if current student account is explicitly suspended, blocked, or disabled
     if (s) {
-      const existsInList = stds.some(item => item.id === s.id);
       if (
         s.status === 'suspended' ||
         s.status === 'blocked' ||
-        s.status === 'restricted' ||
         s.status === 'disabled' ||
-        (stds.length > 0 && !existsInList)
+        (s.status as string) === 'disabled'
       ) {
-        const reason = (!existsInList && stds.length > 0) ? 'deleted' : s.status;
+        const reason = s.status;
         dataService.logoutStudent();
         setCurrentStudent(null);
         if (typeof window !== 'undefined') {
@@ -237,13 +235,7 @@ export default function App() {
       studentRtdbRef,
       (snapshot) => {
         if (!snapshot.exists()) {
-          // Student account was permanently deleted by admin
-          dataService.logoutStudent();
-          setCurrentStudent(null);
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem('student_kickout_reason', 'deleted');
-          }
-          navigate('/login');
+          // May not be in RTDB yet; do not log out
           return;
         }
         const data = snapshot.val() as Student;
@@ -252,7 +244,6 @@ export default function App() {
         if (
           data.status === 'suspended' ||
           data.status === 'blocked' ||
-          data.status === 'restricted' ||
           data.status === 'disabled' ||
           (data.status as string) === 'disabled'
         ) {
@@ -262,7 +253,7 @@ export default function App() {
             sessionStorage.setItem('student_kickout_reason', data.status);
           }
           navigate('/login');
-        } else if (data.status && (data.status !== currentStudent.status || data.name !== currentStudent.name)) {
+        } else if (data.status && (data.status !== currentStudent.status || data.name !== currentStudent.name || data.reExamAllowed !== currentStudent.reExamAllowed)) {
           setCurrentStudent((prev) => (prev ? { ...prev, ...data } : data));
         }
       },
@@ -413,7 +404,9 @@ export default function App() {
   // Determine active student session for current quiz
   const studentActiveSession =
     currentStudent && activeQuiz
-      ? allSessions.find(s => s.quizId === activeQuiz.id && s.studentId === currentStudent.id) || null
+      ? (currentStudent.reExamAllowed && (!currentStudent.reExamQuizId || currentStudent.reExamQuizId === activeQuiz.id))
+        ? null
+        : allSessions.find(s => s.quizId === activeQuiz.id && s.studentId === currentStudent.id) || null
       : null;
 
   const studentSessions = currentStudent
@@ -545,7 +538,8 @@ export default function App() {
     currentStudent &&
     (currentStudent.status === 'suspended' ||
       currentStudent.status === 'blocked' ||
-      currentStudent.status === 'restricted');
+      currentStudent.status === 'disabled' ||
+      (currentStudent.status as string) === 'disabled');
 
   let studentPageContent: React.ReactNode = null;
 

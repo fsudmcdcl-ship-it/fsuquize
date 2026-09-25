@@ -216,7 +216,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
           {/* Action button based on participation status */}
           <div className="shrink-0">
-            {studentSession?.status === 'submitted' || studentSession?.status === 'expired' ? (
+            {student.reExamAllowed && (
+              <div className="mb-3 p-3 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-center gap-2">
+                <span className="font-bold text-sm">🔄</span>
+                <span>पुन: परीक्षा अनुमति सक्रिय छ! तपाईं नयाँ प्रश्न प्राप्त गरी क्विज दिन सक्नुहुन्छ।</span>
+              </div>
+            )}
+            {!student.reExamAllowed && (studentSession?.status === 'submitted' || studentSession?.status === 'expired') ? (
               <div className="flex flex-col sm:flex-row items-center gap-3">
                 <div className="bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-2xl text-center">
                   <span className="text-xs text-emerald-700 font-bold block">तपाईंको नतिजा</span>
@@ -225,14 +231,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   </span>
                 </div>
                 <button
-                  onClick={() => navigate(`/quiz/${activeQuiz?.id || 'quiz_week_12'}`)}
+                  onClick={() => navigate('/past-questions')}
                   className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-2xl shadow transition flex items-center gap-2 cursor-pointer"
                 >
-                  <span>उत्तर तथा समीक्षा हेर्नुहोस्</span>
+                  <BookOpen className="w-4 h-4 text-amber-400" />
+                  <span>विगतका प्रश्नहरू हेर्नुहोस्</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
-            ) : studentSession?.status === 'in_progress' ? (
+            ) : !student.reExamAllowed && studentSession?.status === 'in_progress' ? (
               <button
                 onClick={() => navigate(`/quiz/${activeQuiz?.id || 'quiz_week_12'}`)}
                 className="px-8 py-4 bg-gradient-to-r from-amber-500 to-red-600 hover:from-amber-600 hover:to-red-700 text-white font-black text-base rounded-2xl shadow-lg shadow-red-500/25 transition animate-pulse flex items-center gap-2 cursor-pointer"

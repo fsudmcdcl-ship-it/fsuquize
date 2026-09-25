@@ -35,6 +35,8 @@ export interface Student {
   passcodeHash?: string; // deterministic obfuscated hash for cross-device & cloud verification
   failedLoginAttempts?: number; // 3 wrong attempts triggers block
   blockedReason?: string;
+  reExamAllowed?: boolean;
+  reExamQuizId?: string;
   passwordResetRequest?: {
     newPasscode: string;
     requestedAt: string;

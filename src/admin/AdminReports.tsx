@@ -40,8 +40,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
       'संकाय (Faculty)': s.faculty === 'Art' ? 'कला (Art)' : s.faculty === 'Humanity' ? 'मानविकी (Humanity)' : (s.faculty || 'व्यवस्थापन (Management)'),
       'कक्षा': s.class,
       'सेमेस्टर': s.semester,
-      'सम्पर्क नम्बर': s.phone,
-      'स्थिति': s.status === 'active' ? 'सक्रिय' : s.status === 'restricted' ? 'प्रतिबन्धित' : 'ब्लक',
+      'स्थिति': (s.status === 'active' || s.status === 'approved') ? 'सक्रिय' : s.status === 'pending' ? 'प्रतीक्षारत (Pending)' : s.status === 'restricted' ? 'प्रतिबन्धित' : s.status === 'suspended' ? 'निलम्बित' : 'ब्लक',
       'दर्ता मिति': formatNepalDate(s.createdAt),
     }));
 

@@ -32,10 +32,24 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
   const [isPickingQuestions, setIsPickingQuestions] = useState(false);
   const [hasPickedQuestions, setHasPickedQuestions] = useState(false);
   const [previewQuestions, setPreviewQuestions] = useState<Question[]>([]);
+  const [isJustSubmitted, setIsJustSubmitted] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem(`just_submitted_${quizId}_${student.id}`) === 'true';
+    }
+    return false;
+  });
 
   // Check if session or locked picked questions already exist for this student
   useEffect(() => {
     if (!activeQuiz) return;
+
+    if (student.reExamAllowed && (!student.reExamQuizId || student.reExamQuizId === quizId)) {
+      setSession(null);
+      setQuestions([]);
+      setHasPickedQuestions(false);
+      setPreviewQuestions([]);
+      return;
+    }
 
     const existing = dataService.getStudentSession(quizId, student.id);
     if (existing) {
@@ -130,6 +144,10 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
     const updated = dataService.submitQuizSession(session.quizId, session.studentId, true);
     if (updated) {
       setSession(updated);
+      setIsJustSubmitted(true);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(`just_submitted_${session.quizId}_${session.studentId}`, 'true');
+      }
       onSessionUpdated?.();
     }
   };
@@ -155,6 +173,10 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
 
     if (updated) {
       setSession(updated);
+      setIsJustSubmitted(true);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(`just_submitted_${session.quizId}_${session.studentId}`, 'true');
+      }
       onSessionUpdated?.();
 
       try {
@@ -358,8 +380,78 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
     );
   }
 
-  // If completed: show Results and Question-by-Question Review (Requirements 20, 21, 22)
+  // If completed: show Results and Question-by-Question Review (only on 1st submission; otherwise refer to past questions)
   if (session.status === 'submitted' || session.status === 'expired') {
+    if (!isJustSubmitted) {
+      return (
+        <div className="max-w-2xl mx-auto px-4 py-12 text-center space-y-6">
+          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200/80 shadow-xl space-y-6 animate-in zoom-in-95">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-3xl shadow-xs">
+              ✓
+            </div>
+            <div>
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full uppercase tracking-wider inline-block mb-2">
+                क्विज सबमिसन सम्पन्न (Completed)
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+                तपाईंले यो क्विज सफलतापूर्वक बुझाइसक्नुभएको छ
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 mt-2 max-w-md mx-auto leading-relaxed">
+                {activeQuiz?.title || 'साप्ताहिक क्याम्पस क्विज'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 text-center">
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">प्राप्त अंक</span>
+                <span className="text-2xl font-black text-emerald-600">
+                  {toNepaliDigits(session.score)}/१०
+                </span>
+              </div>
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">प्रतिशत</span>
+                <span className="text-2xl font-black text-slate-900">
+                  {toNepaliDigits(session.percentage)}%
+                </span>
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <span className="text-[11px] font-semibold text-slate-500 block">व्यतित समय</span>
+                <span className="text-2xl font-black text-blue-600">
+                  {formatDurationSeconds(session.timeTakenSeconds)}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl text-left text-xs text-amber-900 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5">
+                <span>🔒</span>
+                <span>उत्तर विश्लेषण गोपनीयता नीति:</span>
+              </div>
+              <p className="text-[11px] text-amber-800 leading-relaxed">
+                क्विज प्रतियोगिताको निष्पक्षताका लागि क्विज सञ्चालन अवधिभर उत्तर विश्लेषण लुकाइएको छ। क्विज अवधि समाप्त भएपछि ५० वटै प्रश्न, सही उत्तर र व्याख्या <b>'विगतका प्रश्नहरू' (Past Questions)</b> खण्डमा सार्वजनिक गरिनेछ।
+              </p>
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-3 pt-2">
+              <button
+                onClick={() => navigate('/past-questions')}
+                className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow transition cursor-pointer flex items-center gap-2"
+              >
+                <BookOpen className="w-4 h-4 text-amber-400" />
+                <span>विगतका प्रश्नहरू हेर्नुहोस्</span>
+              </button>
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                ड्यासबोर्डमा फर्कनुहोस्
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
         {/* Results Banner */}
@@ -370,13 +462,16 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
 
           <div>
             <span className="text-xs font-bold text-amber-200 uppercase tracking-widest block mb-1">
-              क्विज सम्पन्न भयो!
+              क्विज सम्पन्न भयो! (प्रारम्भिक नतिजा)
             </span>
             <h1 className="text-3xl sm:text-4xl font-black">
               तपाईंको क्विज नतिजा
             </h1>
             <p className="text-rose-100 text-xs sm:text-sm mt-1">
               {activeQuiz?.title}
+            </p>
+            <p className="text-[11px] text-amber-200/90 mt-2 bg-black/20 py-1 px-3 rounded-full inline-block">
+              ℹ️ यो उत्तर समीक्षा पृष्ठ अहिले पहिलोपटक मात्र खुला रहनेछ। पछि हेर्नका लागि क्विज समाप्त भएपछि 'विगतका प्रश्नहरू' मा उपलब्ध हुनेछ।
             </p>
           </div>
 
@@ -419,7 +514,11 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
               साप्ताहिक विजेता सूची हेर्नुहोस्
             </button>
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => {
+                sessionStorage.removeItem(`just_submitted_${session.quizId}_${session.studentId}`);
+                setIsJustSubmitted(false);
+                navigate('/dashboard');
+              }}
               className="px-6 py-2.5 bg-white/20 hover:bg-white/30 text-white font-semibold text-xs rounded-xl transition cursor-pointer"
             >
               ड्यासबोर्डमा फर्कनुहोस्

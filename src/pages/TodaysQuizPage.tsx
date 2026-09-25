@@ -75,8 +75,8 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
   }
 
   const availability = getRemainingAvailability(activeQuiz.endAt);
-  const isAlreadyCompleted = studentSession?.status === 'submitted' || studentSession?.status === 'expired';
-  const isInProgress = studentSession?.status === 'in_progress';
+  const isAlreadyCompleted = (studentSession?.status === 'submitted' || studentSession?.status === 'expired') && !student?.reExamAllowed;
+  const isInProgress = studentSession?.status === 'in_progress' && !student?.reExamAllowed;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
@@ -186,6 +186,26 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
           </div>
         </div>
 
+        {/* Re-Exam Allowed Notice */}
+        {student?.reExamAllowed && (
+          <div className="mb-6 bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border-2 border-purple-300 rounded-2xl p-5 flex items-start gap-4 shadow-sm animate-in fade-in">
+            <div className="w-12 h-12 rounded-2xl bg-purple-200 text-purple-800 flex items-center justify-center font-bold text-2xl shrink-0 shadow-inner">
+              🔄
+            </div>
+            <div className="flex-1">
+              <span className="text-xs font-bold text-purple-700 uppercase tracking-wider block">
+                प्रशासक अनुमति • Re-Exam Enabled
+              </span>
+              <h3 className="text-base font-black text-purple-950 mt-0.5">
+                पुन: परीक्षा दिने अवसर सक्रिय गरिएको छ
+              </h3>
+              <p className="text-xs text-purple-900 mt-1 leading-relaxed">
+                तपाईंको विगतको क्विज सबमिसन प्रशासनद्वारा रिसेट गरिएको छ। तलको <b>'मेरो लागि प्रश्न छान्नुहोस्'</b> वा <b>'क्विज सुरु गर्नुहोस्'</b> बटन क्लिक गरी नयाँ १० वटा प्रश्न प्राप्त गर्नुहोस् र परीक्षा सुरु गर्नुहोस्।
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Action Button Section */}
         <div className="pt-2">
           {!student ? (
@@ -221,15 +241,18 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
                     प्राप्त अंक: <b>{toNepaliDigits(studentSession.score)}/१०</b> ({toNepaliDigits(studentSession.percentage)}%)
                     {studentSession.rank ? ` | स्थान: #${toNepaliDigits(studentSession.rank)}` : ''}
                   </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    * विस्तृत उत्तर, व्याख्या र सही उत्तरहरू क्विज सम्पन्न भएपछि <b>'विगतका प्रश्नहरू'</b> खण्डमा उपलब्ध हुनेछन्।
+                  </p>
                 </div>
               </div>
 
               <button
-                onClick={() => navigate(`/quiz/${activeQuiz.id}`)}
-                className="shrink-0 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow transition cursor-pointer flex items-center gap-2"
+                onClick={() => navigate('/past-questions')}
+                className="shrink-0 px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow transition cursor-pointer flex items-center gap-2"
               >
-                <span>मेरो उत्तर तथा नतिजा हेर्नुहोस्</span>
-                <ArrowRight className="w-4 h-4" />
+                <BookOpen className="w-4 h-4 text-amber-400" />
+                <span>विगतका प्रश्नहरू हेर्नुहोस्</span>
               </button>
             </div>
           ) : isInProgress ? (
