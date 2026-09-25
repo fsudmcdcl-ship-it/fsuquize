@@ -53,19 +53,20 @@ export function triggerSystemNotification(title: string, message: string, tag?: 
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission === 'granted') {
     try {
+      const iconUrl = '/favicon.svg';
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
         navigator.serviceWorker.ready.then(reg => {
           reg.showNotification(title, {
             body: message,
-            icon: '/icon-192.png',
+            icon: iconUrl,
             tag: tag || 'fsu_dmc_notification',
-            badge: '/icon-192.png',
+            badge: iconUrl,
           });
         }).catch(() => {
-          new Notification(title, { body: message, icon: '/icon-192.png', tag: tag || 'fsu_dmc_notification' });
+          new Notification(title, { body: message, icon: iconUrl, tag: tag || 'fsu_dmc_notification' });
         });
       } else {
-        new Notification(title, { body: message, icon: '/icon-192.png', tag: tag || 'fsu_dmc_notification' });
+        new Notification(title, { body: message, icon: iconUrl, tag: tag || 'fsu_dmc_notification' });
       }
     } catch (e) {
       console.debug('System notification notice:', e);
@@ -1529,9 +1530,11 @@ class DataService {
    */
   allowStudentRetakeExam(quizId: string, studentId: string, adminEmail = 'admin@fsudmc.com'): boolean {
     const allSessions = this.getSessions();
-    const targetSession = allSessions.find(s => s.quizId === quizId && s.studentId === studentId);
-    
-    if (targetSession) {
+    const targetSessions = allSessions.filter(
+      s => (s.quizId === quizId || !quizId) && (s.studentId === studentId || s.id.endsWith(`_${studentId}`))
+    );
+
+    for (const targetSession of targetSessions) {
       this.deleteQuizSession(targetSession.id, adminEmail);
     }
 
@@ -1559,6 +1562,16 @@ class DataService {
     } catch {
       // ignore
     }
+
+    // Send in-app notification to the student
+    this.sendNotification({
+      title: 'पुन: परीक्षा दिने अवसर प्रदान गरियो 🔄',
+      message: `तपाईंको विगतको क्विज सबमिसन हटाइएको छ र नयाँ परीक्षा दिने अनुमति प्रदान गरिएको छ। अब 'आजको क्विज' मा गई १० वटा नयाँ प्रश्न प्राप्त गरी परीक्षा दिन सक्नुहुन्छ।`,
+      targetType: 'specific',
+      targetStudentId: studentId,
+      type: 'info',
+      adminEmail
+    }).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
@@ -1612,15 +1625,15 @@ class DataService {
     rollNo: string;
     newPasscode: string;
   }): { success: boolean; error?: string; message?: string; studentId?: string } {
-    const cleanName = params.name.trim().toLowerCase();
+    const cleanName = params.name.trim().toLowerCase().replace(/\s+/g, ' ');
     const cleanPhone = fromNepaliDigits(params.phone.trim()).replace(/\D/g, '');
-    const cleanClass = params.studentClass.trim().toLowerCase();
-    const cleanSemester = params.semester.trim().toLowerCase();
+    const cleanClass = params.studentClass.trim().toLowerCase().replace(/\s+/g, ' ');
+    const cleanSemester = params.semester.trim().toLowerCase().replace(/\s+/g, ' ');
     const cleanRoll = fromNepaliDigits(params.rollNo.trim()).replace(/\D/g, '');
     const cleanPass = fromNepaliDigits(params.newPasscode.trim()).replace(/\D/g, '');
 
     if (!cleanName || !cleanPhone || !cleanClass || !cleanSemester || !cleanRoll) {
-      return { success: false, error: 'कृपया पासवर्ड रिसेट गर्न सबै विवरणहरू (नाम, फोन, कक्षा, सेमेस्टर, रोल नम्बर) अनिवार्य भर्नुहोस्।' };
+      return { success: false, error: 'कृपया पासवर्ड रिसेट गर्न सबै विवरणहरू (पूरा नाम, फोन नम्बर, कक्षा, सेमेस्टर, रोल नम्बर) अनिवार्य भर्नुहोस्।' };
     }
 
     if (cleanPass.length !== 4) {
@@ -1629,25 +1642,30 @@ class DataService {
 
     const students = this.getStudents();
     const student = students.find(s => {
-      const sName = s.name.trim().toLowerCase();
-      const sPhone = fromNepaliDigits(s.phone).replace(/\D/g, '');
-      const sClass = s.class.trim().toLowerCase();
-      const sSemester = s.semester.trim().toLowerCase();
-      const sRoll = fromNepaliDigits(s.rollNo).replace(/\D/g, '');
+      const sName = (s.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const sPhone = fromNepaliDigits(s.phone || '').replace(/\D/g, '');
+      const sClass = (s.class || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const sSemester = (s.semester || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const sRoll = fromNepaliDigits(s.rollNo || '').replace(/\D/g, '');
 
-      return (
-        sName === cleanName &&
-        sPhone === cleanPhone &&
-        sClass === cleanClass &&
-        sSemester === cleanSemester &&
-        sRoll === cleanRoll
-      );
+      // Name matches exactly (or word tokens match)
+      const nameMatch = sName === cleanName || sName.includes(cleanName) || cleanName.includes(sName);
+      // Phone matches (10 digits or suffix 10 digits)
+      const phoneMatch = sPhone === cleanPhone || (sPhone.length >= 10 && cleanPhone.length >= 10 && sPhone.slice(-10) === cleanPhone.slice(-10));
+      // Roll matches digits
+      const rollMatch = sRoll === cleanRoll;
+      // Class matches
+      const classMatch = sClass === cleanClass || sClass.includes(cleanClass) || cleanClass.includes(sClass);
+      // Semester matches
+      const semMatch = sSemester === cleanSemester || sSemester.includes(cleanSemester) || cleanSemester.includes(sSemester);
+
+      return nameMatch && phoneMatch && rollMatch && classMatch && semMatch;
     });
 
     if (!student) {
       return {
         success: false,
-        error: 'प्रविष्ट गरिएका विवरणहरू दर्ता गरिएको कुनै पनि रेकर्डसँग मेल खाएनन्। कृपया दर्ता गर्दाको सही नाम, फोन, कक्षा, सेमेस्टर र रोल नम्बर प्रविष्ट गर्नुहोस्।'
+        error: 'प्रविष्ट गरिएका विवरणहरू दर्ता गरिएको कुनै पनि विद्यार्थी रेकर्डसँग मेल खाएनन्। कृपया दर्ता गर्दाको सही नाम, फोन नम्बर, कक्षा, सेमेस्टर र रोल नम्बर प्रविष्ट गर्नुहोस्।'
       };
     }
 
@@ -2795,10 +2813,23 @@ class DataService {
     const local = this.getNotifications();
     const map = new Map<string, AppNotification>();
     for (const n of local) map.set(n.id, n);
+
+    const curStudent = this.getCurrentStudent();
+
     for (const n of incoming) {
       if (n && n.id) {
+        const isBrandNew = !map.has(n.id);
         const existing = map.get(n.id);
         map.set(n.id, { ...existing, ...n });
+
+        // If a brand new notification arrived and student is logged in, trigger phone notification
+        if (isBrandNew && curStudent) {
+          const isTargeted = n.targetType === 'all' || n.targetStudentId === curStudent.id;
+          const isUnread = !Array.isArray(n.readBy) || !n.readBy.includes(curStudent.id);
+          if (isTargeted && isUnread) {
+            triggerSystemNotification(n.title, n.message, n.id);
+          }
+        }
       }
     }
     const merged = Array.from(map.values()).sort(
@@ -2943,6 +2974,26 @@ class DataService {
     this.notifyListeners();
   }
 
+  async saveQuizToFirestore(quiz: Quiz): Promise<void> {
+    try {
+      await setDoc(doc(firestoreDb, 'quizzes', quiz.id), quiz, { merge: true });
+    } catch (err) {
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Firestore saveQuiz notice:', err);
+      }
+    }
+  }
+
+  async saveQuizToRealtimeDb(quiz: Quiz): Promise<void> {
+    try {
+      await set(ref(realtimeDb, `quizzes/${quiz.id}`), quiz);
+    } catch (err) {
+      if (!isOfflineOrUnavailableError(err)) {
+        console.debug('Realtime DB saveQuiz notice:', err);
+      }
+    }
+  }
+
   saveQuiz(quiz: Quiz, adminEmail = 'admin'): void {
     const quizzes = this.getQuizzes();
     const idx = quizzes.findIndex(q => q.id === quiz.id);
@@ -2955,8 +3006,8 @@ class DataService {
     this.setDraftChanges(true);
 
     // Save to Firestore & Realtime Database
-    setDoc(doc(firestoreDb, 'quizzes', quiz.id), quiz, { merge: true }).catch(() => {});
-    set(ref(realtimeDb, `quizzes/${quiz.id}`), quiz).catch(() => {});
+    this.saveQuizToFirestore(quiz).catch(() => {});
+    this.saveQuizToRealtimeDb(quiz).catch(() => {});
 
     this.addAuditLog({
       adminEmail,

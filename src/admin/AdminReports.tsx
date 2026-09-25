@@ -37,6 +37,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
       'विद्यार्थी ID': s.id,
       'पूरा नाम': s.name,
       'रोल नम्बर': s.rollNo,
+      'संकाय (Faculty)': s.faculty === 'Art' ? 'कला (Art)' : s.faculty === 'Humanity' ? 'मानविकी (Humanity)' : (s.faculty || 'व्यवस्थापन (Management)'),
       'कक्षा': s.class,
       'सेमेस्टर': s.semester,
       'सम्पर्क नम्बर': s.phone,

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
-import { dataService, safeRtdbKey } from './lib/dataService';
+import { BellRing } from 'lucide-react';
+import { dataService, safeRtdbKey, triggerSystemNotification } from './lib/dataService';
 import { auth, firestoreDb, realtimeDb, onAuthStateChanged } from './lib/firebase';
 import type { Student, AdminUser, Quiz, QuizSession, WinnerRecord, Question, AuditLog } from './types/quiz';
 
@@ -81,6 +82,7 @@ function parseCurrentRoute(): string {
     '/todays-quize',
     '/quiz/',
     '/winner-list',
+    '/past-questions',
     '/my-status',
     '/profile',
     '/quizemasteradmin',
@@ -148,6 +150,33 @@ export default function App() {
   const [allWinners, setAllWinners] = useState<WinnerRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
+  // Phone notification permission prompt state
+  const [showPhoneNotifPrompt, setShowPhoneNotifPrompt] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const dismissed = sessionStorage.getItem('fsudmc_notif_dismissed');
+      return Notification.permission === 'default' && !dismissed;
+    }
+    return false;
+  });
+
+  const handleRequestPhoneNotification = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const res = await Notification.requestPermission();
+        if (res === 'granted') {
+          triggerSystemNotification(
+            'दार्चुला बहुमुखी क्याम्पस',
+            'मोबाइल नोटिफिकेसन सक्रिय भयो! अब नयाँ क्विज र सूचना तपाईंको फोन नोटिफिकेसनमा आउनेछ।'
+          );
+        }
+        setShowPhoneNotifPrompt(false);
+      } catch (err) {
+        console.debug('Notification request notice:', err);
+        setShowPhoneNotifPrompt(false);
+      }
+    }
+  };
+
   // Reload data from data service
   const refreshData = () => {
     const s = dataService.getCurrentStudent();
@@ -175,15 +204,24 @@ export default function App() {
     const logs = dataService.getAuditLogs();
     setAuditLogs(logs);
 
-    // Auto-logout if current student account is suspended, blocked, or missing
+    // Auto-logout if current student account is suspended, blocked, or deleted from backend
     if (s) {
-      if (s.status === 'suspended' || s.status === 'blocked' || s.status === 'restricted') {
+      const existsInList = stds.some(item => item.id === s.id);
+      if (
+        s.status === 'suspended' ||
+        s.status === 'blocked' ||
+        s.status === 'restricted' ||
+        s.status === 'disabled' ||
+        (stds.length > 0 && !existsInList)
+      ) {
+        const reason = (!existsInList && stds.length > 0) ? 'deleted' : s.status;
         dataService.logoutStudent();
         setCurrentStudent(null);
         if (typeof window !== 'undefined') {
-          sessionStorage.setItem('student_kickout_reason', s.status);
+          sessionStorage.setItem('student_kickout_reason', reason);
         }
         navigate('/login');
+        return;
       }
     }
   };
@@ -712,7 +750,7 @@ export default function App() {
     studentPageContent = (
       <PastQuestionsPage
         navigate={navigate}
-        quizzes={quizzes}
+        quizzes={allQuizzes}
       />
     );
   } else if (currentPath === '/my-status') {
@@ -806,6 +844,44 @@ export default function App() {
         navigate={navigate}
         onLogout={handleStudentLogout}
       />
+
+      {/* Phone Push Notification Permission Prompt */}
+      {showPhoneNotifPrompt && (
+        <div className="bg-gradient-to-r from-red-600 via-rose-600 to-indigo-700 text-white px-4 py-2.5 shadow-sm text-xs border-b border-red-700/50">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                <BellRing className="w-4 h-4 text-amber-300 animate-bounce" />
+              </div>
+              <div>
+                <span className="font-bold">मोबाइल नोटिफिकेसन अलर्ट (Phone Notifications): </span>
+                <span className="text-white/90">
+                  नयाँ क्विज सुरु भएको, परीक्षा रिसेट र नतिजा घोषणाको तत्काल सूचना आफ्नो फोन नोटिफिकेसन ट्याबमा पाउन अनुमति दिनुहोस्।
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 justify-center">
+              <button
+                type="button"
+                onClick={handleRequestPhoneNotification}
+                className="px-3.5 py-1.5 bg-white text-red-700 hover:bg-slate-100 font-bold rounded-xl text-xs shadow-xs transition cursor-pointer"
+              >
+                🔔 अनुमति दिनुहोस् (Allow)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPhoneNotifPrompt(false);
+                  sessionStorage.setItem('fsudmc_notif_dismissed', 'true');
+                }}
+                className="px-2.5 py-1.5 text-white/80 hover:text-white text-xs cursor-pointer"
+              >
+                पछि
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1">
         {studentPageContent}

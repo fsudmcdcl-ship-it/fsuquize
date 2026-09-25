@@ -37,6 +37,7 @@ function githubPagesSpaRoutesPlugin(): Plugin {
         'dashboard',
         'todays-quize',
         'winner-list',
+        'past-questions',
         'my-status',
         'profile',
         'students',

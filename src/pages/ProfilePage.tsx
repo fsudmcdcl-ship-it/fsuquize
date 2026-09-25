@@ -183,7 +183,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
             <span className="text-slate-400 block font-medium">संकाय (Faculty)</span>
             <span className="text-sm font-bold text-slate-800 mt-1 block">
-              {student.faculty === 'Art' ? 'कला (Art)' : student.faculty === 'Humanity' ? 'मानविकी (Humanity)' : (student.faculty || 'व्यवस्थापन')}
+              {student.faculty === 'Art' ? 'कला (Art)' : student.faculty === 'Humanity' ? 'मानविकी (Humanity)' : (student.faculty === 'Management' ? 'व्यवस्थापन (Management)' : (student.faculty || 'व्यवस्थापन (Management)'))}
             </span>
           </div>
 

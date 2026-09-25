@@ -27,6 +27,7 @@ import {
   Camera,
   Trophy,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
 import {
   getAdminLanguage,
@@ -48,7 +49,9 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
   const [lang, setLang] = useState<AdminLanguage>(getAdminLanguage);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StudentFilterType>('all');
+  const [facultyFilter, setFacultyFilter] = useState<'all' | 'Art' | 'Humanity' | 'Management'>('all');
   const [deleteConfirmStudent, setDeleteConfirmStudent] = useState<Student | null>(null);
+  const [retakeConfirmStudent, setRetakeConfirmStudent] = useState<Student | null>(null);
 
   // WhatsApp & Notification Modals State
   const [whatsAppStudent, setWhatsAppStudent] = useState<Student | null>(null);
@@ -209,6 +212,9 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
     } else {
       matchesStatus = s.status === statusFilter;
     }
+
+    const matchesFaculty = facultyFilter === 'all' || s.faculty === facultyFilter;
+    if (!matchesFaculty) return false;
 
     if (!rawSearch) {
       return matchesStatus;
@@ -531,6 +537,17 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
             <option value="blocked">{t.filterBlocked}</option>
             <option value="restricted">{t.filterRestricted}</option>
           </select>
+
+          <select
+            value={facultyFilter}
+            onChange={e => setFacultyFilter(e.target.value as any)}
+            className="w-full sm:w-auto px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-700"
+          >
+            <option value="all">सबै संकाय (All Faculties)</option>
+            <option value="Art">कला (Art)</option>
+            <option value="Humanity">मानविकी (Humanity)</option>
+            <option value="Management">व्यवस्थापन (Management)</option>
+          </select>
         </div>
       </div>
 
@@ -749,6 +766,18 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
                         >
                           <Bell className="w-3.5 h-3.5" />
                         </button>
+
+                        {/* Allow Retake Exam Button if student has any submissions */}
+                        {dataService.getStudentSessionCount(student.id) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setRetakeConfirmStudent(student)}
+                            title="क्विज सबमिसन हटाई विद्यार्थीलाई फेरि परीक्षा दिन अनुमति दिनुहोस् (Allow Retake Exam)"
+                            className="p-1.5 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 transition cursor-pointer"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1145,6 +1174,54 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ students, sessions
           </div>
         );
       })()}
+
+      {/* Retake Exam Confirmation Modal */}
+      {retakeConfirmStudent && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center mx-auto text-2xl font-bold">
+              🔄
+            </div>
+            <div className="text-center">
+              <h3 className="text-lg font-black text-slate-900">पुन: परीक्षा अनुमति (Allow Retake Exam)</h3>
+              <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                के तपाईं <b>{retakeConfirmStudent.name}</b> ({retakeConfirmStudent.id}) लाई फेरि परीक्षा दिन अनुमति दिन निश्चित हुनुहुन्छ?
+              </p>
+              <div className="mt-3 p-3 bg-purple-50 rounded-2xl border border-purple-200 text-left text-[11px] text-purple-900 space-y-1">
+                <p className="font-bold">⚠️ कार्य परिणाम:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-purple-800">
+                  <li>यस विद्यार्थीको विगतको क्विज सबमिसन र प्राप्तांक मेटिनेछ।</li>
+                  <li>विद्यार्थीले नयाँ १० वटा प्रश्न प्राप्त गरी पुनः परीक्षा दिन पाउनेछन्।</li>
+                  <li>विद्यार्थीको इन-एप नोटिफिकेसनमा पुन: परीक्षा दिने अवसर प्राप्त भएको सूचना पठाइनेछ।</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRetakeConfirmStudent(null)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                रद्द गर्नुहोस्
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const s = retakeConfirmStudent;
+                  dataService.allowStudentRetakeExam('', s.id, 'admin@fsudmc.com');
+                  setRetakeConfirmStudent(null);
+                  onRefresh();
+                  showToast(`विद्यार्थी ${s.name} लाई पुन: परीक्षा दिन अनुमति दिइयो र विगतको सबमिसन मेटाइयो।`);
+                }}
+                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow transition cursor-pointer"
+              >
+                पुन: परीक्षा अनुमति दिनुहोस्
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* WhatsApp Modal */}
       <WhatsAppModal
