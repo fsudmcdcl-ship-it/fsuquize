@@ -138,6 +138,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     { label: t.navQuizzes, path: `${prefix}/quizzes`, icon: BookOpen },
     { label: t.navStudents, path: `${prefix}/students`, icon: Users, badge: pendingCount > 0 ? pendingCount : undefined },
     { label: t.navQuestions, path: `${prefix}/questions`, icon: HelpCircle },
+    { label: t.navPastQuestions, path: `${prefix}/past-questions`, icon: FileSpreadsheet },
     { label: t.navSubmissions, path: `${prefix}/submissions`, icon: FileCheck2 },
     { label: t.navWinners, path: `${prefix}/winners`, icon: Trophy },
     { label: t.navReports, path: `${prefix}/reports`, icon: FileSpreadsheet },

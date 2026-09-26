@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import type { Quiz, QuizStatus } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
-import { BookOpen, Plus, Trash2, CheckCircle2, Clock, Calendar, AlertCircle, Edit3, X, Check, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, Plus, Trash2, CheckCircle2, Clock, Calendar, AlertCircle, Edit3, X, Check, Sparkles, Eye, EyeOff, Upload } from 'lucide-react';
 import { AiQuestionPickerModal } from './components/AiQuestionPickerModal';
+import { UploadPastQuestionsModal } from './components/UploadPastQuestionsModal';
 
 interface AdminQuizzesProps {
   quizzes: Quiz[];
@@ -18,6 +19,7 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAiPickerModal, setShowAiPickerModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
 
   // Form states
@@ -118,6 +120,15 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowUploadModal(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Upload className="w-4 h-4 text-emerald-200" />
+            <span>📤 विगतका प्रश्नहरू बल्क अपलोड</span>
+          </button>
+
           <button
             onClick={() => setShowAiPickerModal(true)}
             className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
@@ -406,6 +417,14 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
           }}
         />
       )}
+      {/* Bulk Upload Past Questions Modal */}
+      <UploadPastQuestionsModal
+        quizzes={quizzes}
+        defaultQuizId={activeQuiz?.id}
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        onRefresh={onRefresh}
+      />
     </div>
   );
 };

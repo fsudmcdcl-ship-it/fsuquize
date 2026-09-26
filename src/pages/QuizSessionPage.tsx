@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { dataService } from '../lib/dataService';
 import type { Student, Quiz, Question, QuizSession, QuestionOption } from '../types/quiz';
 import { toNepaliDigits, formatTimer, formatDurationSeconds } from '../lib/nepaliUtils';
-import { Clock, AlertTriangle, CheckCircle, ArrowLeft, ArrowRight, Send, Check, X, ShieldAlert, Award, Dices, Sparkles, Shuffle, CheckCircle2, Lock } from 'lucide-react';
+import { Clock, AlertTriangle, CheckCircle, ArrowLeft, ArrowRight, Send, Check, X, ShieldAlert, Award, Dices, Sparkles, Shuffle, CheckCircle2, Lock, BookOpen } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 interface QuizSessionPageProps {
@@ -759,23 +759,29 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
               उत्तर स्वतः सुरक्षित हुन्छ
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex items-center gap-3">
               {currentIndex < questions.length - 1 ? (
                 <button
+                  type="button"
                   onClick={() => setCurrentIndex(currentIndex + 1)}
-                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  className="px-8 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-blue-600/30 ring-4 ring-blue-300/40 transform hover:-translate-y-0.5 transition"
                 >
-                  <span>अर्को प्रश्न</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <span>अर्को प्रश्न (Next Question)</span>
+                  <ArrowRight className="w-5 h-5" />
                 </button>
               ) : null}
 
               <button
+                type="button"
                 onClick={() => setConfirmModalOpen(true)}
-                className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-red-600/20"
+                className={
+                  currentIndex === questions.length - 1
+                    ? "px-8 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/30 ring-4 ring-emerald-300/40 transition"
+                    : "px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 border border-slate-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition"
+                }
               >
                 <Send className="w-4 h-4" />
-                <span>क्विज बुझाउनुहोस्</span>
+                <span>{currentIndex === questions.length - 1 ? 'सम्पूर्ण क्विज बुझाउनुहोस्' : 'क्विज बुझाउनुहोस्'}</span>
               </button>
             </div>
           </div>
@@ -787,7 +793,7 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
             <div className="text-center">
-              <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl font-bold">
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl font-bold">
                 ⚠️
               </div>
               <h3 className="text-xl font-black text-slate-900">
@@ -808,40 +814,39 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
               </div>
               <div>
                 <span className="text-xs text-slate-500 block">बाँकी रहेका प्रश्न</span>
-                <span className={`text-2xl font-black ${unansweredCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                <span className={`text-2xl font-black ${unansweredCount > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
                   {toNepaliDigits(unansweredCount)}
                 </span>
               </div>
             </div>
 
             {unansweredCount > 0 && (
-              <p className="text-xs text-amber-700 bg-amber-50 p-3 rounded-xl border border-amber-200">
-                चेतावनी: तपाईंले {toNepaliDigits(unansweredCount)} वटा प्रश्नको उत्तर दिन बाँकी छ।
-              </p>
+              <div className="p-3.5 bg-rose-50 rounded-2xl border-2 border-rose-300 text-left space-y-1">
+                <p className="text-xs font-black text-rose-900 flex items-center gap-1.5">
+                  <span>🚨</span>
+                  <span>सावधान: {toNepaliDigits(unansweredCount)} वटा प्रश्न हल गर्न बाँकी छ!</span>
+                </p>
+                <p className="text-[11px] text-rose-800 leading-relaxed">
+                  तपाईंले १० मध्ये केवल <b>{toNepaliDigits(answeredCount)}</b> वटा प्रश्न मात्र हल गर्नुभएको छ। अहिल्यै बुझाएमा बाँकी {toNepaliDigits(unansweredCount)} प्रश्नमा शून्य अंक आउनेछ।
+                </p>
+              </div>
             )}
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setConfirmModalOpen(false)}
-                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center gap-1.5"
               >
-                रद्द गर्नुहोस्
+                <span>← फर्किएर प्रश्न हल गर्छु</span>
               </button>
               <button
                 type="button"
                 onClick={handleFinalSubmit}
                 disabled={isSubmitting}
-                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
               >
-                {isSubmitting ? (
-                  <span>बुझाउँदै...</span>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>निश्चित छु, बुझाउनुहोस्</span>
-                  </>
-                )}
+                {isSubmitting ? <span>बुझाउँदै...</span> : <span>{unansweredCount > 0 ? 'तैपनि बुझाउनुहोस्' : 'निश्चित छु, बुझाउनुहोस्'}</span>}
               </button>
             </div>
           </div>

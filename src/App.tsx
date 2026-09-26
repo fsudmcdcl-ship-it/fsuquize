@@ -30,6 +30,7 @@ import { AdminDashboard } from './admin/AdminDashboard';
 import { AdminQuizzes } from './admin/AdminQuizzes';
 import { AdminStudents } from './admin/AdminStudents';
 import { AdminQuestions } from './admin/AdminQuestions';
+import { AdminPastQuestions } from './admin/AdminPastQuestions';
 import { AdminSubmissions } from './admin/AdminSubmissions';
 import { AdminWinners } from './admin/AdminWinners';
 import { AdminReports } from './admin/AdminReports';
@@ -263,19 +264,25 @@ export default function App() {
     );
 
     // 2. Firestore listener fallback
+    let docPreviouslyExisted = false;
     const unsubDoc = onSnapshot(
       doc(firestoreDb, 'students', currentStudent.id),
       (docSnap) => {
         if (!docSnap.exists()) {
-          // Student account was permanently deleted from Firestore by admin
-          dataService.logoutStudent();
-          setCurrentStudent(null);
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem('student_kickout_reason', 'deleted');
+          // If the account was just created or still pending/local, do not kick out on the initial empty snapshot
+          const stillInLocal = dataService.getStudents().some(s => s.id === currentStudent.id);
+          if (docPreviouslyExisted && !stillInLocal) {
+            // Student account was truly permanently deleted by admin
+            dataService.logoutStudent();
+            setCurrentStudent(null);
+            if (typeof window !== 'undefined') {
+              sessionStorage.setItem('student_kickout_reason', 'deleted');
+            }
+            navigate('/login');
           }
-          navigate('/login');
           return;
         }
+        docPreviouslyExisted = true;
         const data = docSnap.data() as Student;
         if (!data) return;
 
@@ -470,6 +477,15 @@ export default function App() {
         <AdminQuestions
           questions={allQuestions}
           onRefresh={refreshData}
+        />
+      );
+    } else if (currentPath === `${adminPrefix}/past-questions`) {
+      adminContent = (
+        <AdminPastQuestions
+          quizzes={allQuizzes}
+          questions={allQuestions}
+          onRefresh={refreshData}
+          navigate={navigate}
         />
       );
     } else if (currentPath === `${adminPrefix}/submissions`) {

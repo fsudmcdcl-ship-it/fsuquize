@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import type { Question, QuestionOption } from '../types/quiz';
+import type { Question, QuestionOption, Quiz } from '../types/quiz';
 import { toNepaliDigits } from '../lib/nepaliUtils';
 import { dataService } from '../lib/dataService';
-import { Plus, Edit2, Trash2, CheckCircle2, AlertCircle, Check, X, BookOpen, Layers, Sparkles } from 'lucide-react';
+import { Plus, Edit2, Trash2, CheckCircle2, AlertCircle, Check, X, BookOpen, Layers, Sparkles, Upload, FileSpreadsheet, Globe } from 'lucide-react';
 import { AiQuestionPickerModal } from './components/AiQuestionPickerModal';
+import { UploadPastQuestionsModal } from './components/UploadPastQuestionsModal';
 
 interface AdminQuestionsProps {
   questions: Question[];
@@ -19,10 +20,19 @@ const SET_NAMES: Record<number, string> = {
 };
 
 export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRefresh }) => {
+  const allQuizzes = dataService.getQuizzes();
+  const activeQuiz = dataService.getActiveQuiz();
+
+  const [selectedQuizId, setSelectedQuizId] = useState<string>(() => activeQuiz?.id || allQuizzes[0]?.id || 'quiz_week_12');
   const [selectedSet, setSelectedSet] = useState<number>(1);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const currentQuiz = allQuizzes.find(q => q.id === selectedQuizId) || activeQuiz || allQuizzes[0];
+  const currentQuizQuestions = questions.filter(q => (q.quizId || 'quiz_week_12') === selectedQuizId);
 
   // Form State
   const [formQuestion, setFormQuestion] = useState('');
@@ -35,14 +45,19 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
   const [formSet, setFormSet] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [formError, setFormError] = useState('');
 
-  // Group questions by set
+  // Group questions by set for this quiz
   const setCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-  questions.forEach(q => {
+  currentQuizQuestions.forEach(q => {
     const s = q.setNumber || 1;
     setCounts[s] = (setCounts[s] || 0) + 1;
   });
 
-  const currentSetQuestions = questions.filter(q => (q.setNumber || 1) === selectedSet);
+  const currentSetQuestions = currentQuizQuestions.filter(q => (q.setNumber || 1) === selectedSet);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   const handleOpenAdd = () => {
     setEditingQuestion(null);
@@ -83,7 +98,7 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
 
     const newQ: Question = {
       id: editingQuestion ? editingQuestion.id : `q_custom_${Date.now()}`,
-      quizId: 'quiz_week_12',
+      quizId: selectedQuizId,
       setNumber: formSet,
       question: formQuestion.trim(),
       optionA: formOptA.trim(),
@@ -97,33 +112,66 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
     dataService.saveQuestion(newQ, 'admin@fsudmc.com');
     setIsModalOpen(false);
     onRefresh();
+    showToast('प्रश्न सफलतापूर्वक सुरक्षित गरियो।');
   };
 
   const handleDelete = (id: string) => {
     if (confirm('के तपाईं यो प्रश्न हटाउन निश्चित हुनुहुन्छ?')) {
       dataService.deleteQuestion(id, 'admin@fsudmc.com');
       onRefresh();
+      showToast('प्रश्न हटाइयो।');
     }
   };
 
-  const totalBankQuestions = questions.length;
+  const handleToggleFrontend = () => {
+    if (!currentQuiz) return;
+    const nextState = !currentQuiz.showInFrontend;
+    dataService.toggleQuizPastVisibility(currentQuiz.id, nextState, 'admin@fsudmc.com');
+    onRefresh();
+    showToast(
+      nextState
+        ? `क्विज '${currentQuiz.title}' का प्रश्नहरू पोर्टलको 'विगतका प्रश्नहरू' खण्डमा सार्वजनिक गरियो!`
+        : `क्विज '${currentQuiz.title}' का प्रश्नहरू पोर्टलबाट हटाइयो।`
+    );
+  };
+
+  const totalBankQuestions = currentQuizQuestions.length;
   const isCompleteBank = totalBankQuestions >= 50;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 text-xs font-bold flex items-center gap-2 animate-in slide-in-from-bottom-5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900">
-            ५० प्रश्न बैङ्क व्यवस्थापन (Question Bank)
+            ५० प्रश्न बैङ्क तथा विगतका प्रश्न व्यवस्थापन
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            ५ वटा शैक्षिक सेटमा विभक्त ५० प्रश्नहरू (विद्यार्थीलाई प्रत्येक सेटबाट २ प्रश्न = १० प्रश्न)
+            ५ वटा शैक्षिक सेटमा विभक्त ५० प्रश्नहरू (विद्यार्थीलाई प्रत्येक सेटबाट २ प्रश्न = १० प्रश्न) वा विगतका सेटहरू
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {/* Bulk Upload Past Questions Button */}
           <button
+            type="button"
+            onClick={() => setIsUploadModalOpen(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Upload className="w-4 h-4 text-emerald-200" />
+            <span>📤 विगतका प्रश्नहरू बल्क अपलोड</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsAiModalOpen(true)}
             className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
           >
@@ -132,11 +180,60 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
           </button>
 
           <button
+            type="button"
             onClick={handleOpenAdd}
             className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>नयाँ प्रश्न थप्नुहोस्</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Quiz Selector & Past Visibility Bar */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
+          <label className="text-xs font-bold text-slate-700 whitespace-nowrap flex items-center gap-1.5">
+            <Layers className="w-4 h-4 text-red-600" />
+            <span>व्यवस्थापन गर्ने क्विज छान्नुहोस्:</span>
+          </label>
+          <select
+            value={selectedQuizId}
+            onChange={e => {
+              setSelectedQuizId(e.target.value);
+              setSelectedSet(1);
+            }}
+            className="px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-red-500 outline-hidden min-w-[280px]"
+          >
+            {allQuizzes.map(q => {
+              const qCount = questions.filter(item => (item.quizId || 'quiz_week_12') === q.id).length;
+              return (
+                <option key={q.id} value={q.id}>
+                  {q.title} ({q.status === 'active' ? '🟢 चालु' : '⚪ सम्पन्न/पुराना'}) — {toNepaliDigits(qCount)} प्रश्नहरू
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        {/* Public Past Questions Toggle */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleToggleFrontend}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-2xs ${
+              currentQuiz?.showInFrontend
+                ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200'
+                : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
+            }`}
+            title="क्लिक गरी सार्वजनिक वा गोप्य बनाउनुहोस्"
+          >
+            <Globe className="w-4 h-4 text-emerald-600" />
+            <span>
+              {currentQuiz?.showInFrontend
+                ? 'विगतका प्रश्नहरू पोर्टलमा सार्वजनिक छ ✓'
+                : 'पोर्टलमा सार्वजनिक गर्नुहोस् (Publish)'}
+            </span>
           </button>
         </div>
       </div>
