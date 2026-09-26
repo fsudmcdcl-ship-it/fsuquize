@@ -50,23 +50,51 @@ let isRtdbStudentsWritable = true;
 let isRtdbStudentsReadable = true;
 
 export function triggerSystemNotification(title: string, message: string, tag?: string) {
-  if (typeof window === 'undefined' || !('Notification' in window)) return;
-  if (Notification.permission === 'granted') {
+  if (typeof window === 'undefined') return;
+
+  // 1. Dispatch in-app notification event so students active on screen see it immediately
+  try {
+    window.dispatchEvent(
+      new CustomEvent('fsudmc_notification_received', {
+        detail: {
+          title,
+          message,
+          tag: tag || `fsu_notif_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+        },
+      })
+    );
+  } catch {
+    // ignore
+  }
+
+  // 2. Subtle haptic feedback if supported on mobile devices
+  try {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate([150, 80, 150]);
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Native system push notification
+  if ('Notification' in window && Notification.permission === 'granted') {
     try {
       const iconUrl = '/favicon.svg';
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      if ('serviceWorker' in navigator) {
         navigator.serviceWorker.ready.then(reg => {
           reg.showNotification(title, {
             body: message,
             icon: iconUrl,
-            tag: tag || 'fsu_dmc_notification',
+            tag: tag || `fsu_dmc_${Date.now()}`,
             badge: iconUrl,
-          });
+            vibrate: [200, 100, 200],
+          } as any);
         }).catch(() => {
-          new Notification(title, { body: message, icon: iconUrl, tag: tag || 'fsu_dmc_notification' });
+          new Notification(title, { body: message, icon: iconUrl, tag: tag || `fsu_dmc_${Date.now()}` });
         });
       } else {
-        new Notification(title, { body: message, icon: iconUrl, tag: tag || 'fsu_dmc_notification' });
+        new Notification(title, { body: message, icon: iconUrl, tag: tag || `fsu_dmc_${Date.now()}` });
       }
     } catch (e) {
       console.debug('System notification notice:', e);
@@ -166,6 +194,10 @@ const DEFAULT_SETTINGS: PortalSettings = {
   allowPublicPhotos: true,
   contactSupport: '९७४१८२३१२२ / info@fsudmc.com',
   adminSlug: 'quizemasteradmin',
+  showWinners: true,
+  showParticipants: true,
+  autoShowAfterEnding: true,
+  autoShowHours: 1,
 };
 
 // Seed an initial active quiz set to 72 hours availability
@@ -682,6 +714,47 @@ class DataService {
           console.debug('Firestore students onSnapshot notice:', err);
         }
       );
+
+      // 5. Live Notifications stream from Firestore - guarantees student devices receive alerts immediately
+      onSnapshot(
+        collection(firestoreDb, 'notifications'),
+        snapshot => {
+          if (!snapshot.empty) {
+            const list: AppNotification[] = [];
+            snapshot.forEach(docSnap => {
+              const data = docSnap.data() as AppNotification;
+              if (data && data.id && !data.id.startsWith('__')) {
+                list.push(data);
+              }
+            });
+            if (list.length > 0) {
+              this.mergeNotifications(list);
+            }
+          }
+        },
+        err => {
+          console.debug('Firestore notifications onSnapshot notice:', err);
+        }
+      );
+
+      // 6. Live Settings stream from Firestore - reflects showWinners / showParticipants in real-time
+      onSnapshot(
+        doc(firestoreDb, 'settings', 'portal'),
+        docSnap => {
+          if (docSnap.exists()) {
+            const data = docSnap.data() as Partial<PortalSettings>;
+            if (data && typeof data === 'object') {
+              const current = this.getSettings();
+              const updated = { ...current, ...data };
+              this.setStorage(STORAGE_KEYS.SETTINGS, updated);
+              this.notifyListeners();
+            }
+          }
+        },
+        err => {
+          console.debug('Firestore settings onSnapshot notice:', err);
+        }
+      );
     } catch (err) {
       console.debug('Firestore init listeners error:', err);
     }
@@ -1063,13 +1136,19 @@ class DataService {
       }
     }
 
-    // 1. Check local memory / localStorage first - ONLY MATCH UNIQUE STUDENT ID
-    let student = this.getStudents().find(s => s.id.toUpperCase() === queryUpper);
+    // 1. Check local memory / localStorage first - MATCH UNIQUE STUDENT ID, PHONE, OR ROLL NO
+    const cleanDigits = queryStr.replace(/\D/g, '');
+    let student = this.getStudents().find(
+      s =>
+        s.id.toUpperCase() === queryUpper ||
+        (cleanDigits && cleanDigits.length >= 7 && s.phone && s.phone.replace(/\D/g, '') === cleanDigits) ||
+        (s.rollNo && (s.rollNo.toUpperCase() === queryUpper || (cleanDigits && s.rollNo.replace(/\D/g, '') === cleanDigits)))
+    );
 
-    // 2. If not found in local cache, query Firestore & Realtime Database strictly by Student ID document key
+    // 2. If not found in local cache, query Firestore & Realtime Database
     if (!student) {
-      const remoteStudent = await withTimeout(this.getStudentFromFirebase(queryUpper), 3000, null);
-      if (remoteStudent && remoteStudent.id.toUpperCase() === queryUpper) {
+      const remoteStudent = await withTimeout(this.getStudentFromFirebase(queryStr), 3000, null);
+      if (remoteStudent) {
         student = remoteStudent;
         const currentList = this.getStudents();
         if (!currentList.some(s => s.id === remoteStudent.id)) {
@@ -1082,8 +1161,8 @@ class DataService {
     if (!student) {
       return {
         success: false,
-        error: 'यो विद्यार्थी ID फेला परेन वा प्रशासकद्वारा खाता हटाइएको छ। केवल आफ्नो आधिकारिक विद्यार्थी ID (उदा. FSU...) मात्र प्रयोग गर्नुहोस् वा नयाँ खाता दर्ता गर्नुहोस्।',
-        technicalError: `not-found: student ID '${queryUpper}' not present`
+        error: 'यो विद्यार्थी ID वा फोन नम्बर फेला परेन वा प्रशासकद्वारा खाता हटाइएको छ। कृपया आफ्नो आधिकारिक विद्यार्थी ID वा दर्ता गरिएको मोबाइल नम्बर प्रयोग गर्नुहोस् वा नयाँ खाता दर्ता गर्नुहोस्।',
+        technicalError: `not-found: student identifier '${queryStr}' not present`
       };
     }
 
@@ -1470,37 +1549,52 @@ class DataService {
 
   deleteStudent(studentId: string, adminEmail = 'admin', purgeSessions = true): boolean {
     const student = this.getStudents().find(s => s.id === studentId);
+    const targetUid = student?.uid;
+    const targetRoll = student?.rollNo;
+    const targetPhone = student?.phone;
+    const targetName = student?.name;
+
+    // 1. Remove from local student list
     let students = this.getStudents();
-    students = students.filter(s => s.id !== studentId);
+    students = students.filter(s => s.id !== studentId && (!targetUid || s.uid !== targetUid));
     this.setStorage(STORAGE_KEYS.STUDENTS, students);
 
-    // Delete directly from Firestore backend & Realtime Database
+    // 2. Delete directly from Firestore backend & Realtime Database
     this.deleteStudentFromFirestore(studentId).catch(err => {
       if (!isOfflineOrUnavailableError(err)) {
         console.debug('Firestore deleteStudent notice:', err);
       }
     });
-    if (isRtdbStudentsWritable) {
-      remove(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`)).catch((err) => {
-        if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission_denied')) {
-          disableRtdbStudentsAccess('Permission denied on deleteStudent');
-        }
-      });
+    if (targetUid && targetUid !== studentId) {
+      this.deleteStudentFromFirestore(targetUid).catch(() => {});
     }
 
-    // If the deleted student was logged in on this browser, log them out immediately
+    if (isRtdbStudentsWritable) {
+      remove(ref(realtimeDb, `students/${safeRtdbKey(studentId)}`)).catch(() => {});
+      if (targetUid && targetUid !== studentId) {
+        remove(ref(realtimeDb, `students/${safeRtdbKey(targetUid)}`)).catch(() => {});
+      }
+    }
+
+    // 3. If the deleted student was logged in on this browser, log them out immediately
     const cur = this.getCurrentStudent();
-    if (cur && cur.id === studentId) {
+    if (cur && (cur.id === studentId || (targetUid && cur.uid === targetUid))) {
       this.logoutStudent();
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('student_kickout_reason', 'deleted');
         window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
       }
     }
+
+    // 4. Purge ALL quiz sessions belonging to this student
     if (purgeSessions) {
       const allSessions = this.getSessions();
       const studentSessions = allSessions.filter(
-        s => s.studentId === studentId || s.id.endsWith(`_${studentId}`) || (student && s.studentRoll === student.rollNo && s.studentClass === student.class)
+        s =>
+          s.studentId === studentId ||
+          s.id.endsWith(`_${studentId}`) ||
+          (targetUid && s.uid === targetUid) ||
+          (targetRoll && s.studentRoll === targetRoll && student && s.studentClass === student.class)
       );
 
       if (studentSessions.length > 0) {
@@ -1513,12 +1607,27 @@ class DataService {
         }
       }
 
+      // Also query Firestore for any other orphan sessions with this studentId or rollNo
+      getDocs(query(collection(firestoreDb, 'quizSessions'), where('studentId', '==', studentId)))
+        .then(snap => {
+          snap.forEach(d => {
+            deleteDoc(d.ref).catch(() => {});
+            remove(ref(realtimeDb, `quizSessions/${d.id}`)).catch(() => {});
+          });
+        })
+        .catch(() => {});
+
       // Clear any locked question picks stored locally for this student
       try {
         const keysToRemove: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && (k.includes(studentId) || (student && k.includes(student.rollNo)))) {
+          if (
+            k &&
+            (k.includes(studentId) ||
+              (targetRoll && k.includes(targetRoll)) ||
+              (targetPhone && k.includes(targetPhone)))
+          ) {
             keysToRemove.push(k);
           }
         }
@@ -1528,11 +1637,106 @@ class DataService {
       }
     }
 
+    // 5. Purge student from Winners records completely
+    const currentWinners = this.getWinners();
+    let winnersModified = false;
+    const updatedWinners: WinnerRecord[] = [];
+
+    for (const win of currentWinners) {
+      const isFirst = win.first?.studentId === studentId || (targetRoll && win.first?.rollNo === targetRoll);
+      const isSecond = win.second?.studentId === studentId || (targetRoll && win.second?.rollNo === targetRoll);
+      const isThird = win.third?.studentId === studentId || (targetRoll && win.third?.rollNo === targetRoll);
+
+      if (isFirst || isSecond || isThird) {
+        winnersModified = true;
+        let newFirst = win.first;
+        let newSecond = win.second;
+        let newThird = win.third;
+
+        if (isFirst) {
+          newFirst = newSecond!;
+          newSecond = newThird;
+          newThird = undefined;
+        } else if (isSecond) {
+          newSecond = newThird;
+          newThird = undefined;
+        } else if (isThird) {
+          newThird = undefined;
+        }
+
+        if (newFirst) {
+          const updatedRec: WinnerRecord = {
+            ...win,
+            first: newFirst,
+            second: newSecond,
+            third: newThird,
+          };
+          updatedWinners.push(updatedRec);
+          setDoc(doc(firestoreDb, 'winners', win.quizId), stripUndefinedDeep(updatedRec), { merge: true }).catch(() => {});
+          set(ref(realtimeDb, `winners/${win.quizId}`), stripUndefinedDeep(updatedRec)).catch(() => {});
+        } else {
+          // If no winner remaining in this quiz, remove the winner record
+          deleteDoc(doc(firestoreDb, 'winners', win.quizId)).catch(() => {});
+          remove(ref(realtimeDb, `winners/${win.quizId}`)).catch(() => {});
+        }
+      } else {
+        updatedWinners.push(win);
+      }
+    }
+
+    if (winnersModified) {
+      this.setStorage(STORAGE_KEYS.WINNERS, updatedWinners);
+    }
+
+    // 6. Purge Notifications specifically sent to this student
+    const allNotifs = this.getNotifications();
+    const targetedNotifs = allNotifs.filter(
+      n =>
+        n.targetType === 'specific' &&
+        (n.targetStudentId === studentId || (targetName && n.targetStudentName === targetName))
+    );
+    if (targetedNotifs.length > 0) {
+      const remainingNotifs = allNotifs.filter(n => !targetedNotifs.some(tn => tn.id === n.id));
+      this.setStorage(STORAGE_KEYS.NOTIFICATIONS, remainingNotifs);
+      for (const n of targetedNotifs) {
+        deleteDoc(doc(firestoreDb, 'notifications', n.id)).catch(() => {});
+        remove(ref(realtimeDb, `notifications/${n.id}`)).catch(() => {});
+      }
+    }
+    // Remove studentId from readBy lists
+    for (const n of allNotifs) {
+      if (Array.isArray(n.readBy) && n.readBy.includes(studentId)) {
+        n.readBy = n.readBy.filter(id => id !== studentId);
+        updateDoc(doc(firestoreDb, 'notifications', n.id), { readBy: n.readBy }).catch(() => {});
+        set(ref(realtimeDb, `notifications/${n.id}/readBy`), n.readBy).catch(() => {});
+      }
+    }
+
+    // 7. Purge Password Reset Requests for this student
+    const allResets = this.getPasswordResetRequests();
+    const studentResets = allResets.filter(
+      r =>
+        r.studentId === studentId ||
+        (targetPhone && r.phone === targetPhone) ||
+        (targetRoll && r.rollNo === targetRoll)
+    );
+    if (studentResets.length > 0) {
+      const remainingResets = allResets.filter(r => !studentResets.some(sr => sr.id === r.id));
+      this.setStorage(STORAGE_KEYS.PASSWORD_RESETS, remainingResets);
+      for (const r of studentResets) {
+        deleteDoc(doc(firestoreDb, 'passwordResetRequests', r.id)).catch(() => {});
+        remove(ref(realtimeDb, `passwordResetRequests/${r.id}`)).catch(() => {});
+      }
+    }
+
+    // 8. Update Live Broadcast channel so all student leaderboards drop this student's data instantly
+    this.pushWinnersAndParticipantsToLive(adminEmail).catch(() => {});
+
     this.addAuditLog({
       adminEmail,
       action: 'विद्यार्थी स्थायी मेटाइयो',
       target: studentId,
-      details: `विद्यार्थी खाता र सम्बन्धित सम्पूर्ण क्विज सबमिसन प्रणाली र ब्याकइन्डबाट पूर्ण रूपमा हटाइयो`
+      details: `विद्यार्थी खाता, सबमिसन, विजेता रेकर्ड, र व्यक्तिगत विवरण ब्याकइन्डबाट पूर्ण रूपमा हटाइयो`
     });
 
     this.notifyListeners();
@@ -2345,34 +2549,48 @@ class DataService {
     const raw = fromNepaliDigits(studentIdOnly.trim());
     if (!raw) return null;
     const queryUpper = raw.toUpperCase();
+    const cleanDigits = raw.replace(/\D/g, '');
 
-    // 0. Check local cache first strictly by ID
+    // 0. Check local cache first by ID, Phone, or RollNo
     const local = this.getStudents();
-    const localFound = local.find(s => s.id.toUpperCase() === queryUpper);
+    const localFound = local.find(
+      s =>
+        s.id.toUpperCase() === queryUpper ||
+        (cleanDigits && cleanDigits.length >= 7 && s.phone && s.phone.replace(/\D/g, '') === cleanDigits) ||
+        (s.rollNo && (s.rollNo.toUpperCase() === queryUpper || (cleanDigits && s.rollNo.replace(/\D/g, '') === cleanDigits)))
+    );
     if (localFound) return localFound;
 
     try {
-      // 1. Direct ID lookups: Firestore FIRST (PRIMARY) & RTDB optional
-      const firestoreDirectPromise = getDoc(doc(firestoreDb, 'students', queryUpper)).then(snap => {
-        if (snap.exists()) return snap.data() as Student;
-        return null;
-      }).catch(() => null);
+      // 1. Direct ID lookups: Firestore FIRST (PRIMARY)
+      const snap = await getDoc(doc(firestoreDb, 'students', queryUpper)).catch(() => null);
+      if (snap && snap.exists()) return snap.data() as Student;
 
-      const rtdbPromise = isRtdbStudentsReadable
-        ? get(child(ref(realtimeDb), `students/${queryUpper}`)).then(snap => {
-            if (snap.exists()) return snap.val() as Student;
-            return null;
-          }).catch((err) => {
-            if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission_denied')) {
-              disableRtdbStudentsAccess('Permission denied on getStudentFromFirebase RTDB');
-            }
-            return null;
-          })
-        : Promise.resolve(null);
+      // 2. Query Firestore by phone if input looks like a phone number
+      if (cleanDigits && cleanDigits.length >= 7) {
+        const phoneEng = raw;
+        const phoneNep = toNepaliDigits(raw);
+        const phoneQuery = query(collection(firestoreDb, 'students'), where('phone', 'in', [phoneEng, phoneNep]));
+        const phoneSnap = await getDocs(phoneQuery).catch(() => null);
+        if (phoneSnap && !phoneSnap.empty) {
+          return phoneSnap.docs[0].data() as Student;
+        }
+      }
 
-      const [firestoreRes, rtdbRes] = await Promise.all([firestoreDirectPromise, rtdbPromise]);
-      if (firestoreRes) return firestoreRes;
-      if (rtdbRes) return rtdbRes;
+      // 3. Query Firestore by rollNo
+      const rollEng = raw;
+      const rollNep = toNepaliDigits(raw);
+      const rollQuery = query(collection(firestoreDb, 'students'), where('rollNo', 'in', [rollEng, rollNep]));
+      const rollSnap = await getDocs(rollQuery).catch(() => null);
+      if (rollSnap && !rollSnap.empty) {
+        return rollSnap.docs[0].data() as Student;
+      }
+
+      // 4. Realtime Database fallback
+      if (isRtdbStudentsReadable) {
+        const rtdbSnap = await get(child(ref(realtimeDb), `students/${queryUpper}`)).catch(() => null);
+        if (rtdbSnap && rtdbSnap.exists()) return rtdbSnap.val() as Student;
+      }
     } catch (err) {
       if (!isOfflineOrUnavailableError(err)) {
         console.debug('getStudentFromFirebase notice:', err);
@@ -2924,10 +3142,13 @@ class DataService {
         const existing = map.get(n.id);
         map.set(n.id, { ...existing, ...n });
 
-        // If a brand new notification arrived and student is logged in, trigger phone notification
-        if (isBrandNew && curStudent) {
-          const isTargeted = n.targetType === 'all' || n.targetStudentId === curStudent.id;
-          const isUnread = !Array.isArray(n.readBy) || !n.readBy.includes(curStudent.id);
+        // If a brand new notification arrived, trigger notification for student or device
+        if (isBrandNew) {
+          const isTargeted =
+            n.targetType === 'all' ||
+            (curStudent && (n.targetStudentId === curStudent.id || (n.targetStudentName && curStudent.name === n.targetStudentName)));
+          const isUnread =
+            !curStudent || !Array.isArray(n.readBy) || !n.readBy.includes(curStudent.id);
           if (isTargeted && isUnread) {
             triggerSystemNotification(n.title, n.message, n.id);
           }
@@ -3906,9 +4127,89 @@ class DataService {
     const s = this.getStorage<PortalSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
     if (!s.adminSlug || s.adminSlug === 'fsu-dmc-master-x891') {
       s.adminSlug = 'quizemasteradmin';
-      this.setStorage(STORAGE_KEYS.SETTINGS, s);
     }
+    if (s.showWinners === undefined) s.showWinners = true;
+    if (s.showParticipants === undefined) s.showParticipants = true;
+    if (s.autoShowAfterEnding === undefined) s.autoShowAfterEnding = true;
+    if (s.autoShowHours === undefined) s.autoShowHours = 1;
     return s;
+  }
+
+  isWinnerDisplayAllowed(quizId?: string, isCompletedByStudent?: boolean): boolean {
+    const settings = this.getSettings();
+    const quiz = quizId ? this.getQuizzes().find(q => q.id === quizId) : this.getActiveQuiz();
+
+    // 1. Explicit admin toggle
+    if (settings.showWinners) return true;
+
+    // 2. Student completed quiz -> winner must be shown after completion of quiz
+    if (isCompletedByStudent) return true;
+
+    // 3. Quiz-level override
+    if (quiz && quiz.showWinners === true) return true;
+
+    // 4. Automatic reveal: 1 hour after exam completion (or if quiz is closed/archived/ended)
+    if (quiz) {
+      const endTime = new Date(quiz.endAt).getTime();
+      const autoShowTime = endTime + (settings.autoShowHours || 1) * 60 * 60 * 1000;
+      if (
+        Date.now() >= autoShowTime ||
+        Date.now() >= endTime ||
+        quiz.status === 'closed' ||
+        quiz.status === 'archived'
+      ) {
+        return true;
+      }
+    }
+
+    // Past quizzes with winners published
+    if (this.getWinners().length > 0 && (!quiz || quiz.status !== 'active')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  isParticipantsDisplayAllowed(quizId?: string, isCompletedByStudent?: boolean): boolean {
+    const settings = this.getSettings();
+    const quiz = quizId ? this.getQuizzes().find(q => q.id === quizId) : this.getActiveQuiz();
+
+    if (settings.showParticipants) return true;
+    if (isCompletedByStudent) return true;
+    if (quiz && quiz.showParticipants === true) return true;
+
+    if (quiz) {
+      const endTime = new Date(quiz.endAt).getTime();
+      const autoShowTime = endTime + (settings.autoShowHours || 1) * 60 * 60 * 1000;
+      if (
+        Date.now() >= autoShowTime ||
+        Date.now() >= endTime ||
+        quiz.status === 'closed' ||
+        quiz.status === 'archived'
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  updateVisibilitySettings(
+    updates: {
+      showWinners?: boolean;
+      showParticipants?: boolean;
+      autoShowAfterEnding?: boolean;
+      autoShowHours?: number;
+    },
+    adminEmail = 'admin@fsudmc.com'
+  ): PortalSettings {
+    const settings = this.getSettings();
+    const updated: PortalSettings = {
+      ...settings,
+      ...updates,
+    };
+    this.saveSettings(updated, adminEmail);
+    return updated;
   }
 
   getAdminSlug(): string {

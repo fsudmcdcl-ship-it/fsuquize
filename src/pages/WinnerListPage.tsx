@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { WinnerRecord, QuizSession } from '../types/quiz';
 import { toNepaliDigits, formatNepalDate, formatDurationSeconds } from '../lib/nepaliUtils';
-import { Trophy, Award, Sparkles, Printer, Calendar, User, Search, Users, CheckCircle2, RefreshCw, Radio } from 'lucide-react';
+import { Trophy, Award, Sparkles, Printer, Calendar, User, Search, Users, CheckCircle2, RefreshCw, Radio, Clock, Lock } from 'lucide-react';
 import { WinnerPoster } from '../components/WinnerPoster';
 import { dataService } from '../lib/dataService';
 
@@ -45,6 +45,9 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
 
   const [selectedQuizId, setSelectedQuizId] = useState<string>(() => latestWinner?.quizId || quizzes[0]?.id || 'all');
 
+  const isWinnerVisible = dataService.isWinnerDisplayAllowed(selectedQuizId === 'all' ? undefined : selectedQuizId);
+  const isParticipantsVisible = dataService.isParticipantsDisplayAllowed(selectedQuizId === 'all' ? undefined : selectedQuizId);
+
   // Keep selected quiz aligned with latest winner when updated via real-time stream
   useEffect(() => {
     if (latestWinner && (!selectedQuizId || selectedQuizId === 'all')) {
@@ -60,6 +63,45 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
       if (b.score !== a.score) return b.score - a.score;
       return a.timeTakenSeconds - b.timeTakenSeconds;
     });
+
+  // Effective winner for podium (official record or provisional top 3 from completed sessions)
+  const effectiveWinner: WinnerRecord | null = latestWinner || (allSessions.length > 0 ? {
+    id: `provisional_${selectedQuizId}`,
+    quizId: selectedQuizId === 'all' ? (quizzes[0]?.id || 'quiz_provisional') : selectedQuizId,
+    quizTitle: quizzes.find(q => q.id === selectedQuizId)?.title || 'साप्ताहिक हाजिरी जवाफ प्रतियोगिता',
+    publishedAt: new Date().toISOString(),
+    announcedAt: new Date().toISOString(),
+    first: allSessions[0] ? {
+      studentId: allSessions[0].studentId,
+      name: allSessions[0].studentName,
+      rollNo: allSessions[0].studentRoll,
+      class: allSessions[0].studentClass,
+      semester: allSessions[0].studentSemester,
+      score: allSessions[0].score,
+      timeTakenSeconds: allSessions[0].timeTakenSeconds,
+      profilePhoto: allSessions[0].studentPhoto,
+    } : undefined,
+    second: allSessions[1] ? {
+      studentId: allSessions[1].studentId,
+      name: allSessions[1].studentName,
+      rollNo: allSessions[1].studentRoll,
+      class: allSessions[1].studentClass,
+      semester: allSessions[1].studentSemester,
+      score: allSessions[1].score,
+      timeTakenSeconds: allSessions[1].timeTakenSeconds,
+      profilePhoto: allSessions[1].studentPhoto,
+    } : undefined,
+    third: allSessions[2] ? {
+      studentId: allSessions[2].studentId,
+      name: allSessions[2].studentName,
+      rollNo: allSessions[2].studentRoll,
+      class: allSessions[2].studentClass,
+      semester: allSessions[2].studentSemester,
+      score: allSessions[2].score,
+      timeTakenSeconds: allSessions[2].timeTakenSeconds,
+      profilePhoto: allSessions[2].studentPhoto,
+    } : undefined,
+  } as WinnerRecord : null);
 
   const filteredParticipants = allSessions.filter(s => {
     const q = searchTerm.toLowerCase();
@@ -151,21 +193,37 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
       </div>
 
       {/* Latest Quiz Winners Podium */}
-      {latestWinner ? (
+      {!isWinnerVisible ? (
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50/60 rounded-3xl p-8 sm:p-10 border border-amber-200 text-center space-y-4 shadow-2xs">
+          <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto text-3xl shadow-inner">
+            ⏳
+          </div>
+          <div className="max-w-md mx-auto space-y-1.5">
+            <h3 className="text-xl font-black text-slate-900">विजेता घोषणा प्रक्रियामा छ</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              हाल परीक्षा तथा उत्तरहरूको समीक्षा क्रममा छ। परीक्षा समाप्त भएको १ घण्टापछि (वा प्रशासनले प्रकाशन गर्नासाथ) शीर्ष ३ विजेताहरूको आधिकारिक नामावली यहाँ स्वतः सार्वजनिक हुनेछ।
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white border border-amber-200 text-amber-800 text-xs font-bold shadow-2xs">
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <span>परीक्षा सकिएको १ घण्टापछि स्वतः प्रकाशित हुनेछ</span>
+          </div>
+        </div>
+      ) : effectiveWinner ? (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
             <div>
               <span className="text-xs font-bold text-red-600 uppercase tracking-widest block">
-                हालै प्रकाशित नतिजा
+                {latestWinner ? 'हालै प्रकाशित नतिजा' : 'प्रारम्भिक शीर्ष ३ नतिजा (Provisional Top 3)'}
               </span>
-              <h2 className="text-xl font-bold text-slate-900 mt-0.5">{latestWinner.quizTitle}</h2>
+              <h2 className="text-xl font-bold text-slate-900 mt-0.5">{effectiveWinner.quizTitle}</h2>
               <span className="text-xs text-slate-500">
-                घोषणा मिति: {formatNepalDate(latestWinner.publishedAt, false)}
+                घोषणा मिति: {formatNepalDate(effectiveWinner.publishedAt, false)}
               </span>
             </div>
 
             <button
-              onClick={() => setSelectedPosterRecord(latestWinner)}
+              onClick={() => setSelectedPosterRecord(effectiveWinner)}
               className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-sm transition flex items-center gap-1.5 cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-slate-950" />
@@ -176,102 +234,102 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
           {/* 3 Podiums Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
             {/* 2nd Place (Left) */}
-            {latestWinner.second ? (
+            {effectiveWinner.second ? (
               <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs text-center flex flex-col items-center relative order-2 md:order-1">
                 <div className="w-12 h-12 rounded-xl bg-slate-200 text-slate-800 font-black text-2xl flex items-center justify-center mb-3 shadow-xs">
                   🥈
                 </div>
                 <div className="w-20 h-20 rounded-full overflow-hidden bg-slate-100 border-3 border-slate-300 shadow-md mb-3">
                   <img
-                    src={latestWinner.second.profilePhoto || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face'}
-                    alt={latestWinner.second.name}
+                    src={effectiveWinner.second.profilePhoto || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face'}
+                    alt={effectiveWinner.second.name}
                     className="w-full h-full object-cover"
                   />
                 </div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                   दोस्रो स्थान (२nd Place)
                 </span>
-                <h3 className="text-lg font-bold text-slate-900">{latestWinner.second.name}</h3>
+                <h3 className="text-lg font-bold text-slate-900">{effectiveWinner.second.name}</h3>
                 <p className="text-xs text-slate-500 mb-4">
-                  {latestWinner.second.class} ({latestWinner.second.semester}) | रोल: {toNepaliDigits(latestWinner.second.rollNo)}
+                  {effectiveWinner.second.class} ({effectiveWinner.second.semester}) | रोल: {toNepaliDigits(effectiveWinner.second.rollNo)}
                 </p>
 
                 <div className="w-full pt-3 border-t border-slate-100 flex justify-around text-xs">
                   <div>
                     <span className="text-[10px] text-slate-400 block">प्राप्त अंक</span>
-                    <b className="text-slate-800 text-base">{toNepaliDigits(latestWinner.second.score)}/१०</b>
+                    <b className="text-slate-800 text-base">{toNepaliDigits(effectiveWinner.second.score)}/१०</b>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block">समय लागेको</span>
-                    <b className="text-slate-800 text-xs">{formatDurationSeconds(latestWinner.second.timeTakenSeconds)}</b>
+                    <b className="text-slate-800 text-xs">{formatDurationSeconds(effectiveWinner.second.timeTakenSeconds)}</b>
                   </div>
                 </div>
               </div>
             ) : null}
 
             {/* 1st Place (Center - Highlighted) */}
-            {latestWinner.first ? (
+            {effectiveWinner.first ? (
               <div className="bg-gradient-to-b from-amber-500/10 via-white to-amber-500/5 rounded-3xl p-6 sm:p-8 border-2 border-amber-400 shadow-xl text-center flex flex-col items-center relative order-1 md:order-2 md:-translate-y-4">
                 <div className="w-14 h-14 rounded-2xl bg-amber-400 text-slate-950 font-black text-3xl flex items-center justify-center mb-3 shadow-lg shadow-amber-400/30">
                   🥇
                 </div>
                 <div className="w-24 h-24 rounded-full overflow-hidden bg-slate-100 border-4 border-amber-400 shadow-lg mb-3">
                   <img
-                    src={latestWinner.first.profilePhoto || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop&crop=face'}
-                    alt={latestWinner.first.name}
+                    src={effectiveWinner.first.profilePhoto || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop&crop=face'}
+                    alt={effectiveWinner.first.name}
                     className="w-full h-full object-cover"
                   />
                 </div>
                 <span className="inline-block px-3 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider mb-1">
                   प्रथम स्थान (Winner)
                 </span>
-                <h3 className="text-xl font-black text-slate-900">{latestWinner.first.name}</h3>
+                <h3 className="text-xl font-black text-slate-900">{effectiveWinner.first.name}</h3>
                 <p className="text-xs text-slate-600 mb-4 font-medium">
-                  {latestWinner.first.class} ({latestWinner.first.semester}) | रोल: {toNepaliDigits(latestWinner.first.rollNo)}
+                  {effectiveWinner.first.class} ({effectiveWinner.first.semester}) | रोल: {toNepaliDigits(effectiveWinner.first.rollNo)}
                 </p>
 
                 <div className="w-full pt-4 border-t border-amber-200 flex justify-around text-xs bg-amber-50/50 p-2 rounded-2xl">
                   <div>
                     <span className="text-[10px] text-amber-800 block">प्राप्त अंक</span>
-                    <b className="text-amber-900 text-lg">{toNepaliDigits(latestWinner.first.score)}/१०</b>
+                    <b className="text-amber-900 text-lg">{toNepaliDigits(effectiveWinner.first.score)}/१०</b>
                   </div>
                   <div>
                     <span className="text-[10px] text-amber-800 block">समय लागेको</span>
-                    <b className="text-amber-900 text-xs">{formatDurationSeconds(latestWinner.first.timeTakenSeconds)}</b>
+                    <b className="text-amber-900 text-xs">{formatDurationSeconds(effectiveWinner.first.timeTakenSeconds)}</b>
                   </div>
                 </div>
               </div>
             ) : null}
 
             {/* 3rd Place (Right) */}
-            {latestWinner.third ? (
+            {effectiveWinner.third ? (
               <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs text-center flex flex-col items-center relative order-3">
                 <div className="w-12 h-12 rounded-xl bg-amber-700 text-white font-black text-2xl flex items-center justify-center mb-3 shadow-xs">
                   🥉
                 </div>
                 <div className="w-20 h-20 rounded-full overflow-hidden bg-slate-100 border-3 border-amber-600 shadow-md mb-3">
                   <img
-                    src={latestWinner.third.profilePhoto || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&h=200&fit=crop&crop=face'}
-                    alt={latestWinner.third.name}
+                    src={effectiveWinner.third.profilePhoto || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&h=200&fit=crop&crop=face'}
+                    alt={effectiveWinner.third.name}
                     className="w-full h-full object-cover"
                   />
                 </div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 mb-1">
                   तेस्रो स्थान (३rd Place)
                 </span>
-                <h3 className="text-lg font-bold text-slate-900">{latestWinner.third.name}</h3>
+                <h3 className="text-lg font-bold text-slate-900">{effectiveWinner.third.name}</h3>
                 <p className="text-xs text-slate-500 mb-4">
-                  {latestWinner.third.class} ({latestWinner.third.semester}) | रोल: {toNepaliDigits(latestWinner.third.rollNo)}
+                  {effectiveWinner.third.class} ({effectiveWinner.third.semester}) | रोल: {toNepaliDigits(effectiveWinner.third.rollNo)}
                 </p>
 
                 <div className="w-full pt-3 border-t border-slate-100 flex justify-around text-xs">
                   <div>
                     <span className="text-[10px] text-slate-400 block">प्राप्त अंक</span>
-                    <b className="text-slate-800 text-base">{toNepaliDigits(latestWinner.third.score)}/१०</b>
+                    <b className="text-slate-800 text-base">{toNepaliDigits(effectiveWinner.third.score)}/१०</b>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block">समय लागेको</span>
-                    <b className="text-slate-800 text-xs">{formatDurationSeconds(latestWinner.third.timeTakenSeconds)}</b>
+                    <b className="text-slate-800 text-xs">{formatDurationSeconds(effectiveWinner.third.timeTakenSeconds)}</b>
                   </div>
                 </div>
               </div>
@@ -284,7 +342,18 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
         </div>
       )}
 
-      {/* All Quiz Participants Table (Requirement: Normal users only see data in table form) */}
+      {/* All Quiz Participants Table */}
+      {!isParticipantsVisible ? (
+        <div className="bg-slate-50 rounded-3xl p-8 text-center border border-slate-200 space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-slate-200 text-slate-700 flex items-center justify-center mx-auto text-xl">
+            📋
+          </div>
+          <h3 className="text-base font-bold text-slate-800">सहभागीहरूको नतिजा तालिका हाल गोप्य छ</h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            परीक्षा निष्पक्षताका लागि सहभागीहरूको प्राप्ताङ्क सूची परीक्षा सकिएपछि १ घण्टाभित्र स्वतः प्रदर्शित हुनेछ।
+          </p>
+        </div>
+      ) : (
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
           <div>
@@ -450,9 +519,10 @@ export const WinnerListPage: React.FC<WinnerListPageProps> = ({ winners: initial
           </div>
         )}
       </div>
+      )}
 
       {/* Past Winners Archive */}
-      {pastWinners.length > 0 && (
+      {isWinnerVisible && pastWinners.length > 0 && (
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
           <div className="border-b border-slate-100 pb-4">
             <h2 className="text-xl font-bold text-slate-900">अघिल्ला क्विजका विजेताहरू (Archives)</h2>

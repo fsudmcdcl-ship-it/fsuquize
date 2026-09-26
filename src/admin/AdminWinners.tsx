@@ -30,6 +30,36 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
   const [isPushingLive, setIsPushingLive] = useState(false);
   const [pushNotice, setPushNotice] = useState<string | null>(null);
 
+  // Visibility Controls State
+  const initialSettings = dataService.getSettings();
+  const [showWinnersToggle, setShowWinnersToggle] = useState(initialSettings.showWinners ?? true);
+  const [showParticipantsToggle, setShowParticipantsToggle] = useState(initialSettings.showParticipants ?? true);
+  const [autoShowEndingToggle, setAutoShowEndingToggle] = useState(initialSettings.autoShowAfterEnding ?? true);
+
+  const handleToggleWinners = (val: boolean) => {
+    setShowWinnersToggle(val);
+    dataService.updateVisibilitySettings({ showWinners: val }, 'admin@fsudmc.com');
+    onRefresh();
+    setPushNotice(val ? 'विजेता सूची विद्यार्थीहरूका लागि सार्वजनिक गरियो!' : 'विजेता सूची विद्यार्थीहरूका लागि लुकाइयो।');
+    setTimeout(() => setPushNotice(null), 3500);
+  };
+
+  const handleToggleParticipants = (val: boolean) => {
+    setShowParticipantsToggle(val);
+    dataService.updateVisibilitySettings({ showParticipants: val }, 'admin@fsudmc.com');
+    onRefresh();
+    setPushNotice(val ? 'सहभागीहरूको नतिजा विद्यार्थीहरूका लागि सार्वजनिक गरियो!' : 'सहभागीहरूको नतिजा विद्यार्थीहरूका लागि लुकाइयो।');
+    setTimeout(() => setPushNotice(null), 3500);
+  };
+
+  const handleToggleAutoShow = (val: boolean) => {
+    setAutoShowEndingToggle(val);
+    dataService.updateVisibilitySettings({ autoShowAfterEnding: val }, 'admin@fsudmc.com');
+    onRefresh();
+    setPushNotice(val ? 'परीक्षा सकिएको १ घण्टापछि विजेता र सहभागी स्वतः देखिने नियम सक्रिय गरियो!' : '१ घण्टापछि स्वतः देखाउने नियम निष्क्रिय गरियो।');
+    setTimeout(() => setPushNotice(null), 3500);
+  };
+
   // Manual Add Winner Modal
   const [showManualAddModal, setShowManualAddModal] = useState(false);
   const [manualQuizTitle, setManualQuizTitle] = useState('');
@@ -334,6 +364,126 @@ export const AdminWinners: React.FC<AdminWinnersProps> = ({
           <span>विजेताहरूको पूर्ण सूची ब्याकइन्ड भण्डारणमा स्थायी रूपमा सुरक्षित गरियो!</span>
         </div>
       )}
+
+      {/* WINNER & PARTICIPANTS VISIBILITY SWITCHES (Requirement: turn on/off and automatically show 1 hour after ending of exam) */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-white to-blue-500/10 rounded-3xl p-6 border-2 border-amber-300/80 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/80 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-xl shadow-xs">
+              👁️
+            </div>
+            <div>
+              <h2 className="text-base font-black text-slate-900">
+                विजेता तथा सहभागी सूची दृश्यता नियन्त्रण (Visibility Toggles)
+              </h2>
+              <p className="text-xs text-slate-600 font-medium">
+                विद्यार्थीहरूका लागि विजेता सूची तथा सहभागीहरूको नतिजा देखाउने वा लुकाउने प्रत्यक्ष स्विचहरू
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                showWinnersToggle
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  : 'bg-rose-100 text-rose-800 border-rose-300'
+              }`}
+            >
+              विजेता: {showWinnersToggle ? 'सार्वजनिक (ON)' : 'लुकाइएको (OFF)'}
+            </span>
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                showParticipantsToggle
+                  ? 'bg-blue-100 text-blue-800 border-blue-300'
+                  : 'bg-slate-100 text-slate-700 border-slate-300'
+              }`}
+            >
+              सहभागी: {showParticipantsToggle ? 'सार्वजनिक (ON)' : 'लुकाइएको (OFF)'}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+          {/* Toggle 1: Show Winners */}
+          <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base">🏆</span>
+                <span className="text-xs font-black text-slate-900">विजेता देखाउने</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                पोडियम र प्रथम, दोस्रो, तेस्रो स्थान विद्यार्थीहरूले हेर्न पाउने
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleToggleWinners(!showWinnersToggle)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                showWinnersToggle ? 'bg-emerald-600' : 'bg-slate-300'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                  showWinnersToggle ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Toggle 2: Show Participants */}
+          <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base">📋</span>
+                <span className="text-xs font-black text-slate-900">सहभागीहरू देखाउने</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                सबै सहभागी विद्यार्थीहरूको प्राप्ताङ्क र समय तालिका सार्वजनिक गर्ने
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleToggleParticipants(!showParticipantsToggle)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                showParticipantsToggle ? 'bg-blue-600' : 'bg-slate-300'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                  showParticipantsToggle ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Toggle 3: Auto-reveal 1 hour after ending */}
+          <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base">⏰</span>
+                <span className="text-xs font-black text-slate-900">१ घण्टापछि स्वतः देखाउने</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                परीक्षा समाप्त भएको १ घण्टापछि विजेता र सहभागी स्वतः सार्वजनिक हुने
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleToggleAutoShow(!autoShowEndingToggle)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                autoShowEndingToggle ? 'bg-amber-500' : 'bg-slate-300'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                  autoShowEndingToggle ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* SECTION 1: PERMANENT SAVED WINNERS LIST */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">

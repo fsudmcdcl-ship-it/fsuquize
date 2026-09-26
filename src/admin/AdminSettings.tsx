@@ -16,6 +16,9 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
   const [availabilityHours, setAvailabilityHours] = useState(currentSettings.quizAvailabilityHours);
   const [contactSupport, setContactSupport] = useState(currentSettings.contactSupport);
   const [adminSlug, setAdminSlug] = useState(currentSettings.adminSlug || 'quizemasteradmin');
+  const [showWinners, setShowWinners] = useState(currentSettings.showWinners ?? true);
+  const [showParticipants, setShowParticipants] = useState(currentSettings.showParticipants ?? true);
+  const [autoShowAfterEnding, setAutoShowAfterEnding] = useState(currentSettings.autoShowAfterEnding ?? true);
   const [slugSavedNotice, setSlugSavedNotice] = useState(false);
   const [copiedUrlNotice, setCopiedUrlNotice] = useState(false);
   const [saveNotice, setSaveNotice] = useState(false);
@@ -52,6 +55,10 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
       quizDurationMinutes: Number(durationMinutes),
       quizAvailabilityHours: Number(availabilityHours),
       contactSupport,
+      showWinners,
+      showParticipants,
+      autoShowAfterEnding,
+      autoShowHours: 1,
     };
     dataService.saveSettings(updated, 'admin@fsudmc.com');
     setSaveNotice(true);
@@ -344,6 +351,58 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
               onChange={e => setContactSupport(e.target.value)}
               className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-medium"
             />
+          </div>
+
+          {/* Winner and Participants Visibility Controls */}
+          <div className="sm:col-span-2 bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+              <span>🏆</span>
+              <span>विजेता तथा सहभागी सूची प्रदर्शन नियन्त्रण (Visibility Controls)</span>
+            </h3>
+            <p className="text-[11px] text-slate-500">
+              विद्यार्थीहरूका लागि विजेता र सहभागीहरूको नतिजा देखाउने वा लुकाउने स्विचहरू
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <label className="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300">
+                <input
+                  type="checkbox"
+                  checked={showWinners}
+                  onChange={e => setShowWinners(e.target.checked)}
+                  className="w-4 h-4 text-red-600 rounded"
+                />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">विजेता देखाउने</span>
+                  <span className="text-[10px] text-slate-500">Winner list public</span>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300">
+                <input
+                  type="checkbox"
+                  checked={showParticipants}
+                  onChange={e => setShowParticipants(e.target.checked)}
+                  className="w-4 h-4 text-red-600 rounded"
+                />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">सहभागीहरू देखाउने</span>
+                  <span className="text-[10px] text-slate-500">Participants table public</span>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-slate-300">
+                <input
+                  type="checkbox"
+                  checked={autoShowAfterEnding}
+                  onChange={e => setAutoShowAfterEnding(e.target.checked)}
+                  className="w-4 h-4 text-red-600 rounded"
+                />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">१ घण्टापछि स्वतः देखाउने</span>
+                  <span className="text-[10px] text-slate-500">Auto-reveal 1 hr after end</span>
+                </div>
+              </label>
+            </div>
           </div>
         </div>
 

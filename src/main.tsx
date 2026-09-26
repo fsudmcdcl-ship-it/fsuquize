@@ -35,6 +35,15 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// Register service worker for push and background notifications
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.debug('ServiceWorker registration notice:', err);
+    });
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

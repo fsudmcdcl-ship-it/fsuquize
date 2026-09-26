@@ -138,5 +138,17 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Notifications (System and individual student notifications)
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Password reset requests submitted by students and reviewed by admin
+    match /passwordResetRequests/{requestId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

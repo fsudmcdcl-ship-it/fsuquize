@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { Student, Quiz, QuizSession } from '../types/quiz';
-import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
-import { BookOpen, Clock, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Trophy, Sparkles, Dices } from 'lucide-react';
+import { toNepaliDigits, formatNepalDate, formatDurationSeconds, getRemainingAvailability } from '../lib/nepaliUtils';
+import { BookOpen, Clock, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Trophy, Sparkles, Dices, Users, Award } from 'lucide-react';
 import { StudentQuestionPickerModal } from '../components/StudentQuestionPickerModal';
 import { dataService } from '../lib/dataService';
 
@@ -230,30 +230,246 @@ export const TodaysQuizPage: React.FC<TodaysQuizPageProps> = ({
               </div>
             </div>
           ) : isAlreadyCompleted ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3 text-center sm:text-left">
-                <CheckCircle2 className="w-8 h-8 text-emerald-600 shrink-0" />
-                <div>
-                  <h4 className="text-base font-bold text-emerald-900">
-                    तपाईंले यो क्विज सफलतापूर्वक बुझाइसक्नुभएको छ
-                  </h4>
-                  <p className="text-xs text-emerald-700 mt-0.5">
-                    प्राप्त अंक: <b>{toNepaliDigits(studentSession.score)}/१०</b> ({toNepaliDigits(studentSession.percentage)}%)
-                    {studentSession.rank ? ` | स्थान: #${toNepaliDigits(studentSession.rank)}` : ''}
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    * विस्तृत उत्तर, व्याख्या र सही उत्तरहरू क्विज सम्पन्न भएपछि <b>'विगतका प्रश्नहरू'</b> खण्डमा उपलब्ध हुनेछन्।
-                  </p>
+            <div className="space-y-6">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3 text-center sm:text-left">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-600 shrink-0" />
+                  <div>
+                    <h4 className="text-base font-bold text-emerald-900">
+                      तपाईंले यो क्विज सफलतापूर्वक बुझाइसक्नुभएको छ
+                    </h4>
+                    <p className="text-xs text-emerald-700 mt-0.5">
+                      प्राप्त अंक: <b>{toNepaliDigits(studentSession.score)}/१०</b> ({toNepaliDigits(studentSession.percentage)}%)
+                      {studentSession.rank ? ` | स्थान: #${toNepaliDigits(studentSession.rank)}` : ''}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      * विस्तृत उत्तर, व्याख्या र सही उत्तरहरू क्विज सम्पन्न भएपछि <b>'विगतका प्रश्नहरू'</b> खण्डमा उपलब्ध हुनेछन्।
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => navigate('/winner-list')}
+                    className="shrink-0 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Trophy className="w-3.5 h-3.5" />
+                    <span>विजेता सूची पोर्टल</span>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('/past-questions')}
+                    className="shrink-0 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+                    <span>विगतका प्रश्नहरू</span>
+                  </button>
                 </div>
               </div>
 
-              <button
-                onClick={() => navigate('/past-questions')}
-                className="shrink-0 px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow transition cursor-pointer flex items-center gap-2"
-              >
-                <BookOpen className="w-4 h-4 text-amber-400" />
-                <span>विगतका प्रश्नहरू हेर्नुहोस्</span>
-              </button>
+              {/* Requirement: Winner and participants must be shown after the completion of the quiz */}
+              {(() => {
+                const isWinnerAllowed = dataService.isWinnerDisplayAllowed(activeQuiz.id, isAlreadyCompleted);
+                const isParticipantsAllowed = dataService.isParticipantsDisplayAllowed(activeQuiz.id, isAlreadyCompleted);
+                const quizWinner = dataService.getWinners().find(w => w.quizId === activeQuiz.id) || dataService.getWinners()[0];
+                const quizParticipants = dataService
+                  .getSessions(activeQuiz.id)
+                  .filter(s => s.status === 'submitted' || s.status === 'expired' || (typeof s.score === 'number' && s.score >= 0 && Boolean(s.submittedAt)))
+                  .sort((a, b) => {
+                    if (b.score !== a.score) return b.score - a.score;
+                    return a.timeTakenSeconds - b.timeTakenSeconds;
+                  });
+
+                // Top provisional winners if official record is not yet published
+                const effectiveWinner = quizWinner || (quizParticipants.length > 0 ? {
+                  id: `provisional_${activeQuiz.id}`,
+                  quizId: activeQuiz.id,
+                  quizTitle: activeQuiz.title,
+                  announcedAt: new Date().toISOString(),
+                  first: quizParticipants[0] ? {
+                    studentId: quizParticipants[0].studentId,
+                    name: quizParticipants[0].studentName,
+                    rollNo: quizParticipants[0].studentRoll,
+                    class: quizParticipants[0].studentClass,
+                    semester: quizParticipants[0].studentSemester,
+                    score: quizParticipants[0].score,
+                    timeTakenSeconds: quizParticipants[0].timeTakenSeconds,
+                    profilePhoto: quizParticipants[0].studentPhoto,
+                  } : undefined,
+                  second: quizParticipants[1] ? {
+                    studentId: quizParticipants[1].studentId,
+                    name: quizParticipants[1].studentName,
+                    rollNo: quizParticipants[1].studentRoll,
+                    class: quizParticipants[1].studentClass,
+                    semester: quizParticipants[1].studentSemester,
+                    score: quizParticipants[1].score,
+                    timeTakenSeconds: quizParticipants[1].timeTakenSeconds,
+                    profilePhoto: quizParticipants[1].studentPhoto,
+                  } : undefined,
+                  third: quizParticipants[2] ? {
+                    studentId: quizParticipants[2].studentId,
+                    name: quizParticipants[2].studentName,
+                    rollNo: quizParticipants[2].studentRoll,
+                    class: quizParticipants[2].studentClass,
+                    semester: quizParticipants[2].studentSemester,
+                    score: quizParticipants[2].score,
+                    timeTakenSeconds: quizParticipants[2].timeTakenSeconds,
+                    profilePhoto: quizParticipants[2].studentPhoto,
+                  } : undefined,
+                } : null);
+
+                return (
+                  <div className="pt-2 space-y-6">
+                    {/* Top Winners Podium */}
+                    {isWinnerAllowed && effectiveWinner ? (
+                      <div className="bg-gradient-to-br from-amber-50/70 via-white to-amber-50/50 p-6 rounded-3xl border-2 border-amber-300 shadow-sm space-y-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 pb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-2xl">🏆</span>
+                            <div>
+                              <h3 className="text-base font-black text-slate-900">
+                                क्विज विजेताहरू (Top Winners)
+                              </h3>
+                              <p className="text-xs text-slate-500 font-medium">{effectiveWinner.quizTitle}</p>
+                            </div>
+                          </div>
+                          <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-900 font-bold text-xs">
+                            {quizWinner ? 'आधिकारिक नतिजा' : 'प्रारम्भिक शीर्ष ३ (Provisional Top 3)'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                          {/* 1st Place */}
+                          {effectiveWinner.first && (
+                            <div className="p-4 rounded-2xl bg-amber-100/60 border border-amber-300 sm:order-2 sm:-translate-y-2">
+                              <span className="text-2xl block mb-1">🥇</span>
+                              <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] uppercase mb-1">
+                                प्रथम स्थान
+                              </span>
+                              <h4 className="font-black text-sm text-slate-900">{effectiveWinner.first.name}</h4>
+                              <p className="text-[11px] text-slate-600">{effectiveWinner.first.class} | रोल: {toNepaliDigits(effectiveWinner.first.rollNo)}</p>
+                              <div className="mt-2 pt-2 border-t border-amber-200 font-bold text-xs text-amber-950">
+                                प्राप्तांक: {toNepaliDigits(effectiveWinner.first.score)}/१०
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 2nd Place */}
+                          {effectiveWinner.second && (
+                            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 sm:order-1">
+                              <span className="text-2xl block mb-1">🥈</span>
+                              <span className="text-[10px] font-bold text-slate-600 uppercase block mb-1">दोस्रो स्थान</span>
+                              <h4 className="font-bold text-sm text-slate-900">{effectiveWinner.second.name}</h4>
+                              <p className="text-[11px] text-slate-500">{effectiveWinner.second.class} | रोल: {toNepaliDigits(effectiveWinner.second.rollNo)}</p>
+                              <div className="mt-2 pt-2 border-t border-slate-200 font-bold text-xs text-slate-800">
+                                प्राप्तांक: {toNepaliDigits(effectiveWinner.second.score)}/१०
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 3rd Place */}
+                          {effectiveWinner.third && (
+                            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 sm:order-3">
+                              <span className="text-2xl block mb-1">🥉</span>
+                              <span className="text-[10px] font-bold text-amber-800 uppercase block mb-1">तेस्रो स्थान</span>
+                              <h4 className="font-bold text-sm text-slate-900">{effectiveWinner.third.name}</h4>
+                              <p className="text-[11px] text-slate-500">{effectiveWinner.third.class} | रोल: {toNepaliDigits(effectiveWinner.third.rollNo)}</p>
+                              <div className="mt-2 pt-2 border-t border-slate-200 font-bold text-xs text-slate-800">
+                                प्राप्तांक: {toNepaliDigits(effectiveWinner.third.score)}/१०
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : !isWinnerAllowed ? (
+                      <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 text-center space-y-1.5">
+                        <div className="flex items-center justify-center gap-2 text-amber-900 font-bold text-xs">
+                          <Clock className="w-4 h-4 text-amber-600" />
+                          <span>विजेता सूची परीक्षा सकिएको १ घण्टापछि स्वतः प्रकाशित हुनेछ</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600">
+                          क्याम्पस परीक्षा नियमानुसार सम्पूर्ण सहभागीहरूको उत्तर समीक्षा सम्पन्न भएपछि १ घण्टाभित्र विजेता घोषणा गरिनेछ।
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {/* Participants Leaderboard Table */}
+                    {isParticipantsAllowed ? (
+                      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                          <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-red-600" />
+                            <h3 className="font-bold text-sm text-slate-900">
+                              सहभागी विद्यार्थीहरूको नतिजा ({toNepaliDigits(quizParticipants.length)} जना)
+                            </h3>
+                          </div>
+                          <span className="text-[11px] text-slate-500 font-medium">
+                            सर्वोच्च अंक र न्यूनतम समय अनुसार क्रमबद्ध
+                          </span>
+                        </div>
+
+                        {quizParticipants.length > 0 ? (
+                          <div className="overflow-x-auto rounded-xl border border-slate-100">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-50 text-slate-600 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-100">
+                                <tr>
+                                  <th className="py-2.5 px-3 text-center">क्र.सं.</th>
+                                  <th className="py-2.5 px-3">विद्यार्थी</th>
+                                  <th className="py-2.5 px-3">कक्षा / रोल</th>
+                                  <th className="py-2.5 px-3 text-center">प्राप्तांक</th>
+                                  <th className="py-2.5 px-3 text-center">समय</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {quizParticipants.slice(0, 10).map((part, pIdx) => {
+                                  const isMe = part.studentId === student?.id;
+                                  return (
+                                    <tr
+                                      key={part.id}
+                                      className={`transition-colors ${
+                                        isMe ? 'bg-amber-50 font-bold text-amber-950' : 'hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <td className="py-2 px-3 text-center">
+                                        {pIdx === 0 ? '🥇' : pIdx === 1 ? '🥈' : pIdx === 2 ? '🥉' : `#${toNepaliDigits(pIdx + 1)}`}
+                                      </td>
+                                      <td className="py-2 px-3">
+                                        <div className="flex items-center gap-2">
+                                          <span>{part.studentName}</span>
+                                          {isMe && (
+                                            <span className="px-1.5 py-0.5 rounded-sm bg-red-600 text-white text-[9px] font-black uppercase">
+                                              तपाईं
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="py-2 px-3 text-slate-600">
+                                        {part.studentClass} ({part.studentSemester}) | {toNepaliDigits(part.studentRoll)}
+                                      </td>
+                                      <td className="py-2 px-3 text-center font-bold text-slate-900">
+                                        {toNepaliDigits(part.score)}/१०
+                                      </td>
+                                      <td className="py-2 px-3 text-center text-slate-500">
+                                        {formatDurationSeconds(part.timeTakenSeconds)}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-center text-xs text-slate-400 py-4">अहिलेसम्म अन्य कुनै सहभागी छैनन्।</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-500">
+                        📋 सहभागी विद्यार्थीहरूको नतिजा तालिका परीक्षा सकिएपछि १ घण्टाभित्र सार्वजनिक हुनेछ।
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : isInProgress ? (
             <div className="bg-amber-500 text-white rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg shadow-amber-500/20">

@@ -76,6 +76,8 @@ export interface Quiz {
   totalBankQuestions: number; // 50 in bank
   status: QuizStatus;
   showInFrontend?: boolean; // whether past question & answers are published to frontend
+  showWinners?: boolean; // admin override to explicitly show or hide winners
+  showParticipants?: boolean; // admin override to explicitly show or hide participants
   createdAt: string;
   updatedAt?: string;
 }
@@ -188,6 +190,10 @@ export interface PortalSettings {
   allowPublicPhotos: boolean;
   contactSupport: string;
   adminSlug: string;
+  showWinners: boolean; // whether winners list is revealed to students
+  showParticipants: boolean; // whether participants list is revealed to students
+  autoShowAfterEnding: boolean; // automatically reveal winners and participants after exam end
+  autoShowHours: number; // e.g. 1 hour after exam completion
 }
 
 export type NotificationType = 'info' | 'success' | 'warning' | 'urgent';

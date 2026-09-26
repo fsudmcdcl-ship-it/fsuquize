@@ -100,7 +100,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
     const cleanPass = fromNepaliDigits(passcode.trim()).replace(/\D/g, '');
 
     if (!cleanId) {
-      setError('कृपया आफ्नो अद्वितीय विद्यार्थी ID (Unique Student ID) प्रविष्ट गर्नुहोस्।');
+      setError('कृपया आफ्नो विद्यार्थी ID वा दर्ता गरिएको मोबाइल नम्बर प्रविष्ट गर्नुहोस्।');
       return;
     }
     if (!cleanPass) {
@@ -112,7 +112,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
     if (cleanId.toLowerCase().includes('admin') || cleanId.toLowerCase().includes('quizemaster') || cleanId.toLowerCase() === 'info@fsudmc.com') {
       const adminResult = dataService.loginAdmin(cleanId, cleanPass);
       if (adminResult.success) {
-        navigate('/admin');
+        navigate('/quizemasteradmin');
         return;
       }
     }
@@ -172,10 +172,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Student ID (Unique ID only) */}
+          {/* Student ID or Phone */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              अद्वितीय विद्यार्थी ID (Unique Student ID) *
+              विद्यार्थी ID वा दर्ता गरिएको मोबाइल नम्बर (Student ID / Phone) *
             </label>
             <div className="relative">
               <input
@@ -184,13 +184,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
                 autoComplete="username"
                 value={studentId}
                 onChange={e => setStudentId(fromNepaliDigits(e.target.value.trim()))}
-                placeholder="आफ्नो अद्वितीय विद्यार्थी ID प्रविष्ट गर्नुहोस्"
-                className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-mono font-bold tracking-wide"
+                placeholder="विद्यार्थी ID (उदा. FSU...) वा १० अंकको मोबाइल नं."
+                className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-red-500 text-sm font-bold tracking-wide"
               />
               <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              दर्ता गर्दा प्राप्त भएको आफ्नो आधिकारिक अद्वितीय विद्यार्थी ID मात्र प्रयोग गर्नुहोस्
+              आफ्नो आधिकारिक विद्यार्थी ID वा दर्ता गर्दा प्रयोग गरिएको १०-अंकको मोबाइल नम्बर राख्नुहोस्
             </p>
           </div>
 
@@ -286,8 +286,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
             <div className="pt-4 text-center">
               <button
                 type="button"
-                onClick={() => navigate('/admin/login')}
-                className="text-slate-400 hover:text-slate-600 text-xs font-semibold inline-flex items-center gap-1.5 transition"
+                onClick={() => navigate('/quizemasteradmin')}
+                className="text-slate-400 hover:text-slate-600 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
               >
                 <Shield className="w-3.5 h-3.5" />
                 <span>प्रशासक (Admin) लगइन पोर्टल</span>

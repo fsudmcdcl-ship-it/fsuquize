@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { ref, onValue } from 'firebase/database';
-import { BellRing } from 'lucide-react';
+import { BellRing, Bell, X, Sparkles } from 'lucide-react';
 import { dataService, safeRtdbKey, triggerSystemNotification } from './lib/dataService';
 import { auth, firestoreDb, realtimeDb, onAuthStateChanged } from './lib/firebase';
 import type { Student, AdminUser, Quiz, QuizSession, WinnerRecord, Question, AuditLog } from './types/quiz';
@@ -177,6 +177,41 @@ export default function App() {
       }
     }
   };
+
+  // Real-time incoming notification alert toast for all devices
+  const [activeAlertToast, setActiveAlertToast] = useState<{
+    title: string;
+    message: string;
+    tag?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const handleNotificationReceived = (e: Event) => {
+      const customEvt = e as CustomEvent<{ title: string; message: string; tag?: string }>;
+      if (customEvt.detail) {
+        setActiveAlertToast({
+          title: customEvt.detail.title,
+          message: customEvt.detail.message,
+          tag: customEvt.detail.tag,
+        });
+        refreshData();
+      }
+    };
+
+    window.addEventListener('fsudmc_notification_received', handleNotificationReceived);
+    return () => {
+      window.removeEventListener('fsudmc_notification_received', handleNotificationReceived);
+    };
+  }, []);
+
+  // Auto-dismiss alert toast after 8 seconds
+  useEffect(() => {
+    if (!activeAlertToast) return;
+    const timer = setTimeout(() => {
+      setActiveAlertToast(null);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [activeAlertToast]);
 
   // Reload data from data service
   const refreshData = () => {
@@ -888,6 +923,37 @@ export default function App() {
               >
                 पछि
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Floating Notification Alert Toast for Students */}
+      {activeAlertToast && (
+        <div className="fixed top-4 right-4 sm:right-6 z-50 max-w-sm w-[calc(100vw-2rem)] animate-in slide-in-from-top-4 fade-in duration-200">
+          <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border-2 border-amber-400 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 font-bold shadow-md">
+              <Bell className="w-5 h-5 animate-bounce" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-400">
+                  नयाँ क्याम्पस सूचना • New Alert
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveAlertToast(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <h4 className="text-xs font-bold text-white mt-0.5 line-clamp-1">
+                {activeAlertToast.title}
+              </h4>
+              <p className="text-[11px] text-slate-300 mt-1 line-clamp-2 leading-relaxed">
+                {activeAlertToast.message}
+              </p>
             </div>
           </div>
         </div>
