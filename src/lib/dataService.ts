@@ -1698,8 +1698,8 @@ class DataService {
     quiz.updatedAt = new Date().toISOString();
     this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
 
-    this.saveQuizToFirestore(quiz).catch(() => {});
-    this.saveQuizToRealtimeDb(quiz).catch(() => {});
+    setDoc(doc(firestoreDb, 'quizzes', quiz.id), quiz, { merge: true }).catch(() => {});
+    set(ref(realtimeDb, `quizzes/${quiz.id}`), quiz).catch(() => {});
 
     this.addAuditLog({
       adminEmail,
