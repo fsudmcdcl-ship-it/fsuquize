@@ -287,8 +287,11 @@ export const AdminPastQuestions: React.FC<AdminPastQuestionsProps> = ({
                       </span>
                       <button
                         type="button"
-                        onClick={() => navigate('/questions')}
-                        className="text-xs font-bold text-red-600 hover:underline flex items-center gap-1"
+                        onClick={() => {
+                          const slug = dataService.getAdminSlug() || 'quizemasteradmin';
+                          navigate(`/${slug}/questions`);
+                        }}
+                        className="text-xs font-bold text-red-600 hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <span>प्रश्न सम्पादन गर्न प्रश्न बैंकमा जानुहोस्</span>
                         <ChevronRight className="w-3.5 h-3.5" />
