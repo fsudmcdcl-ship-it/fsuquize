@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Student, AppNotification, NotificationType } from '../../types/quiz';
 import { dataService } from '../../lib/dataService';
+import { formatNepalDate } from '../../lib/nepaliUtils';
 import { getWhatsAppUrl, getCustomNotificationWhatsAppMessage } from '../../lib/whatsappUtils';
 import {
   Bell,
@@ -472,7 +473,7 @@ export const SendNotificationModal: React.FC<SendNotificationModalProps> = ({
                           </span>
 
                           <span className="text-[10px] text-slate-400">
-                            {new Date(notif.createdAt).toLocaleDateString('ne-NP')}
+                            {formatNepalDate(notif.createdAt, true)}
                           </span>
                         </div>
 

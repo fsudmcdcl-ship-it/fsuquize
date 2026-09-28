@@ -19,6 +19,7 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAiPickerModal, setShowAiPickerModal] = useState(false);
+  const [aiModalMode, setAiModalMode] = useState<'picker' | 'generate'>('generate');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
 
@@ -130,11 +131,24 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
           </button>
 
           <button
-            onClick={() => setShowAiPickerModal(true)}
-            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+            onClick={() => {
+              setAiModalMode('generate');
+              setShowAiPickerModal(true);
+            }}
+            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/20 transition flex items-center gap-1.5 cursor-pointer"
           >
             <Sparkles className="w-4 h-4 text-amber-300" />
-            <span>🤖 AI १० अनियमित प्रश्न छनोटकर्ता</span>
+            <span>✨ AI नयाँ क्विज र प्रश्न निर्माण (AI Generator)</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setAiModalMode('picker');
+              setShowAiPickerModal(true);
+            }}
+            className="px-3.5 py-2.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <span>🤖 १० प्रश्न चयन</span>
           </button>
 
           <button
@@ -408,6 +422,7 @@ export const AdminQuizzes: React.FC<AdminQuizzesProps> = ({
           onClose={() => setShowAiPickerModal(false)}
           questions={dataService.getQuestions()}
           quizzes={quizzes}
+          initialMode={aiModalMode}
           onQuestionsUpdated={onRefresh}
           onApplyToQuiz={(selected10, targetQuizId) => {
             selected10.forEach(q => {

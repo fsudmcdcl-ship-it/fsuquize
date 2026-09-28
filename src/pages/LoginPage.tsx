@@ -282,17 +282,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate, onStudentLoggedI
                 <span>नयाँ विद्यार्थी दर्ता गर्नुहोस् (Register Now)</span>
               </button>
             </div>
-
-            <div className="pt-4 text-center">
-              <button
-                type="button"
-                onClick={() => navigate('/quizemasteradmin')}
-                className="text-slate-400 hover:text-slate-600 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>प्रशासक (Admin) लगइन पोर्टल</span>
-              </button>
-            </div>
           </div>
         </form>
       </div>

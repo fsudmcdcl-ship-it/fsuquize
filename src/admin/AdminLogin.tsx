@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { dataService } from '../lib/dataService';
 import {
   loginAdminWithFirebase,
-  loginAdminWithGoogle,
-  firebaseConfig,
 } from '../lib/firebase';
 import type { AdminUser } from '../types/quiz';
 import {
@@ -12,10 +10,8 @@ import {
   AlertCircle,
   ArrowRight,
   ShieldCheck,
-  Flame,
   CheckCircle2,
   KeyRound,
-  LogIn,
   Globe
 } from 'lucide-react';
 import {
@@ -80,27 +76,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
     }
   };
 
-  // Handle Firebase Google Login
-  const handleGoogleLogin = async () => {
-    setError('');
-    setSuccessMsg('');
-    setIsSubmitting(true);
-    const result = await loginAdminWithGoogle();
-    setIsSubmitting(false);
-
-    if (result.success && result.user) {
-      const admin = dataService.setAdminFromFirebase({
-        uid: result.user.uid,
-        email: result.user.email,
-        displayName: result.user.displayName,
-      });
-      onAdminLoggedIn(admin);
-      navigate(`/${adminSlug}/dashboard`);
-    } else {
-      setError(result.error || (lang === 'ne' ? 'Google प्रमाणीकरण असफल भयो।' : 'Google authentication failed.'));
-    }
-  };
-
   // Emergency Master Passcode Fallback
   const handleFallbackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,24 +111,20 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
           </button>
         </div>
 
-        {/* Header */}
+        {/* Header - Cleaned without exposed IDs or hardcoded URLs */}
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 bg-gradient-to-tr from-amber-600 via-orange-600 to-red-600 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-lg shadow-red-600/30">
-            <Flame className="w-8 h-8 text-white fill-amber-300" />
+          <div className="w-14 h-14 bg-gradient-to-tr from-red-600 via-rose-600 to-amber-500 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-lg shadow-red-600/30">
+            <ShieldCheck className="w-8 h-8 text-white" />
           </div>
 
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] font-bold tracking-wide uppercase">
-            <span>🔥 Firebase Authentication</span>
-            <span className="text-slate-400 font-mono">({firebaseConfig.projectId})</span>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-300 text-[11px] font-bold tracking-wide uppercase">
+            <span>सुरक्षित प्रशासक पोर्टल</span>
           </div>
 
           <h1 className="text-2xl font-black text-white">{t.loginTitle}</h1>
           <p className="text-xs text-slate-400">
             {t.loginSubtitle}
           </p>
-          <div className="text-[11px] font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-md inline-block border border-slate-700">
-            URL: <span className="text-red-400 font-bold">quize.fsudmc.com/{adminSlug}</span>
-          </div>
         </div>
 
         {/* Alert Messages */}
@@ -189,7 +160,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
                     required
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    placeholder="info@fsudmc.com"
+                    placeholder={lang === 'ne' ? 'प्रशासक इमेल' : 'Admin email'}
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-hidden focus:border-red-500 focus:ring-1 focus:ring-red-500 font-mono"
                   />
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -229,42 +200,8 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
               </button>
             </form>
 
-            <div className="relative flex py-1 items-center">
-              <div className="flex-grow border-t border-slate-800"></div>
-              <span className="shrink-0 mx-4 text-[10px] text-slate-500 uppercase tracking-widest font-bold">वा</span>
-              <div className="flex-grow border-t border-slate-800"></div>
-            </div>
-
-            {/* Google Login Button */}
-            <button
-              type="button"
-              onClick={handleGoogleLogin}
-              disabled={isSubmitting}
-              className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path
-                  fill="#EA4335"
-                  d="M12 5c1.54 0 2.93.53 4.02 1.41l3.01-3.01C17.21 1.7 14.77 1 12 1 7.42 1 3.55 3.6 1.7 7.4l3.66 2.84C6.24 7.37 8.87 5 12 5z"
-                />
-                <path
-                  fill="#4285F4"
-                  d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58l3.71 2.88c2.17-2 3.71-4.96 3.71-8.7z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.36 14.76c-.22-.66-.36-1.37-.36-2.11s.14-1.45.36-2.11L1.7 7.7C.62 9.85 0 12.28 0 14.85s.62 5 1.7 7.15l3.66-2.84z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c3.24 0 5.95-1.08 7.93-2.91l-3.71-2.88c-1.07.72-2.45 1.16-4.22 1.16-3.13 0-5.76-2.37-6.64-5.24L1.7 16c1.85 3.8 5.72 6.4 10.3 6.4z"
-                />
-              </svg>
-              <span>{t.loginWithGoogle}</span>
-            </button>
-
             {/* Switch to Emergency Fallback */}
-            <div className="pt-2 text-center">
+            <div className="pt-2 text-center border-t border-slate-800/80">
               <button
                 type="button"
                 onClick={() => {
@@ -303,7 +240,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="info@fsudmc.com वा admin"
+                  placeholder={lang === 'ne' ? 'प्रयोगकर्ता नाम वा इमेल' : 'Username or email'}
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-hidden focus:border-red-500 focus:ring-1 focus:ring-red-500 font-mono"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -320,7 +257,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="1234 वा admin123"
+                  placeholder="••••••••"
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-hidden focus:border-red-500 focus:ring-1 focus:ring-red-500 font-mono"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />

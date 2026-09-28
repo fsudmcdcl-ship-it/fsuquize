@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /quizemasteradmin/
+
+Sitemap: https://quize.fsudmc.com/sitemap.xml

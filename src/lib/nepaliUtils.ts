@@ -21,11 +21,6 @@ export function fromNepaliDigits(input: string): string {
   return input.split('').map(c => map[c] ?? c).join('');
 }
 
-const nepaliMonthsEnglish = [
-  'जनवरी', 'फेब्रुअरी', 'मार्च', 'अप्रिल', 'मे', 'जुन',
-  'जुलाई', 'अगस्ट', 'सेप्टेम्बर', 'अक्टोबर', 'नोभेम्बर', 'डिसेम्बर'
-];
-
 export const nepaliBSMonths = [
   'वैशाख', 'जेठ', 'असार', 'साउन', 'भदौ', 'असोज',
   'कात्तिक', 'मंसिर', 'पुस', 'माघ', 'फागुन', 'चैत'
@@ -152,8 +147,8 @@ export function getLiveNepalDateTimeString(date: Date = new Date()): string {
 }
 
 /**
- * Formats date into Asia/Kathmandu timezone with natural Nepali terminology
- * e.g., "२३ सेप्टेम्बर २०२६, बेलुका ८:०० बजे" or B.S. format
+ * Formats date into Asia/Kathmandu Bikram Sambat (B.S.) date and Nepali time
+ * e.g., "वि.सं. २०८३ असोज १२, दिउँसो २:१५ बजे (NPT)" or "वि.सं. २०८३ असोज १२"
  */
 export function formatNepalDate(dateInput: string | Date | number, includeTime = true): string {
   try {
@@ -161,6 +156,12 @@ export function formatNepalDate(dateInput: string | Date | number, includeTime =
     if (isNaN(d.getTime())) return 'मिति उपलब्ध छैन';
 
     const bs = getBikramSambatDate(d);
+
+    const bsDateStr = `वि.सं. ${toNepaliDigits(bs.year)} ${bs.monthName} ${toNepaliDigits(bs.day)}`;
+
+    if (!includeTime) {
+      return bsDateStr;
+    }
 
     const options: Intl.DateTimeFormatOptions = {
       timeZone: 'Asia/Kathmandu',
@@ -172,20 +173,14 @@ export function formatNepalDate(dateInput: string | Date | number, includeTime =
     const formatter = new Intl.DateTimeFormat('en-US', options);
     const parts = formatter.formatToParts(d);
     
-    let hour = '';
-    let minute = '';
+    let hour = '12';
+    let minute = '00';
     let dayPeriod = 'AM';
 
     for (const part of parts) {
       if (part.type === 'hour') hour = part.value;
       if (part.type === 'minute') minute = part.value.padStart(2, '0');
       if (part.type === 'dayPeriod') dayPeriod = part.value.toUpperCase();
-    }
-
-    const bsDateStr = `वि.सं. ${toNepaliDigits(bs.year)} ${bs.monthName} ${toNepaliDigits(bs.day)}`;
-
-    if (!includeTime) {
-      return bsDateStr;
     }
 
     const hourNum = parseInt(hour, 10);
@@ -204,6 +199,91 @@ export function formatNepalDate(dateInput: string | Date | number, includeTime =
   } catch {
     return String(dateInput);
   }
+}
+
+/**
+ * Calculates countdown units (days, hours, minutes, seconds) for an upcoming or active quiz
+ */
+export function getQuizCountdown(startAtIso: string, endAtIso: string, quizStatus?: string): {
+  status: 'upcoming' | 'active' | 'ended';
+  label: string;
+  subLabel: string;
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  totalSeconds: number;
+} {
+  const now = Date.now();
+  const startTime = new Date(startAtIso).getTime();
+  const endTime = new Date(endAtIso).getTime();
+
+  if (isNaN(endTime)) {
+    return {
+      status: 'ended',
+      label: 'क्विज उपलब्ध छैन',
+      subLabel: 'प्रशासनबाट समय निर्धारण हुन बाँकी छ',
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+      totalSeconds: 0,
+    };
+  }
+
+  // Priority 1: If explicitly active, or if current time is within running window (and endTime has not passed):
+  if ((quizStatus === 'active' || (now >= startTime && now < endTime)) && now < endTime && quizStatus !== 'closed') {
+    const diffMs = endTime - now;
+    const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
+    const days = Math.floor(totalSecs / 86400);
+    const hours = Math.floor((totalSecs % 86400) / 3600);
+    const minutes = Math.floor((totalSecs % 3600) / 60);
+    const seconds = totalSecs % 60;
+
+    return {
+      status: 'active',
+      label: 'क्विज समाप्त हुन बाँकी समय',
+      subLabel: 'क्विज प्रत्यक्ष सञ्चालनमा छ! समयसीमा भित्र सहभागी भई सबमिट गर्नुहोस्।',
+      days,
+      hours,
+      minutes,
+      seconds,
+      totalSeconds: totalSecs,
+    };
+  }
+
+  // Priority 2: Upcoming quiz (startAt is in the future, and quiz is not active/closed)
+  if (now < startTime && quizStatus !== 'active' && quizStatus !== 'closed') {
+    const diffMs = startTime - now;
+    const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
+    const days = Math.floor(totalSecs / 86400);
+    const hours = Math.floor((totalSecs % 86400) / 3600);
+    const minutes = Math.floor((totalSecs % 3600) / 60);
+    const seconds = totalSecs % 60;
+
+    return {
+      status: 'upcoming',
+      label: 'क्विज सुरु हुन बाँकी समय',
+      subLabel: 'तयार रहनुहोस्! तोकिएको समयमा क्विज प्रत्यक्ष सुरु हुनेछ।',
+      days,
+      hours,
+      minutes,
+      seconds,
+      totalSeconds: totalSecs,
+    };
+  }
+
+  // Priority 3: Quiz has ended
+  return {
+    status: 'ended',
+    label: 'यो क्विज सम्पन्न भइसकेको छ',
+    subLabel: 'अर्को हप्ताको नयाँ क्विजको समय तालिका छिट्टै प्रकाशित हुनेछ।',
+    days: 0,
+    hours: 0,
+    minutes: 0,
+    seconds: 0,
+    totalSeconds: 0,
+  };
 }
 
 /**

@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import type { Quiz, Question, QuestionOption } from '../../types/quiz';
 import { dataService } from '../../lib/dataService';
-import { toNepaliDigits } from '../../lib/nepaliUtils';
+import { toNepaliDigits, formatNepalDate } from '../../lib/nepaliUtils';
 import {
   Upload,
   FileSpreadsheet,
@@ -387,7 +387,7 @@ export const UploadPastQuestionsModal: React.FC<UploadPastQuestionsModalProps> =
 
       // If admin selected to create a brand new past quiz archive
       if (createNewPastQuiz) {
-        const titleToUse = newQuizTitle.trim() || `विगतका क्विज प्रश्न सङ्ग्रह - ${new Date().toLocaleDateString('ne-NP')}`;
+        const titleToUse = newQuizTitle.trim() || `विगतका क्विज प्रश्न सङ्ग्रह - ${formatNepalDate(new Date(), false)}`;
         const newQuiz: Quiz = {
           id: `past_quiz_${Date.now()}`,
           title: titleToUse,

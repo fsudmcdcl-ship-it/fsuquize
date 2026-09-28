@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Student, AppNotification } from '../types/quiz';
 import { dataService, triggerSystemNotification } from '../lib/dataService';
+import { formatNepalDate } from '../lib/nepaliUtils';
 import { Bell, CheckCheck, Info, CheckCircle, AlertTriangle, Flame, X, MessageSquare, Clock, BellRing } from 'lucide-react';
 
 interface NotificationBellProps {
@@ -221,7 +222,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ student }) =
                       </p>
                       <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-1">
                         <Clock className="w-3 h-3" />
-                        <span>{new Date(notif.createdAt).toLocaleDateString('ne-NP')}</span>
+                        <span>{formatNepalDate(notif.createdAt, true)}</span>
                         {notif.targetType === 'specific' && (
                           <span className="text-[9px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">
                             व्यक्तिगत (Direct)

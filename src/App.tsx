@@ -621,6 +621,7 @@ export default function App() {
         student={currentStudent}
         activeQuiz={activeQuiz}
         recentWinner={allWinners[0] || null}
+        allQuizzes={allQuizzes}
       />
     );
   } else if (currentPath === '/register') {
@@ -796,6 +797,7 @@ export default function App() {
       <PastQuestionsPage
         navigate={navigate}
         quizzes={allQuizzes}
+        student={currentStudent}
       />
     );
   } else if (currentPath === '/my-status') {

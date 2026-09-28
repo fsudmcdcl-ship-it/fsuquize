@@ -176,7 +176,7 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
             className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
           >
             <Sparkles className="w-4 h-4 text-amber-300" />
-            <span>🤖 AI १० अनियमित प्रश्न छनोटकर्ता</span>
+            <span>✨ AI प्रश्न र क्विज निर्माता</span>
           </button>
 
           <button

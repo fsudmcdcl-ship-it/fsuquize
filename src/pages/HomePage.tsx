@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Student, Quiz, WinnerRecord } from '../types/quiz';
-import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
-import { BookOpen, Trophy, CheckCircle, ArrowRight, UserCheck, ShieldCheck, Clock, Award } from 'lucide-react';
+import { toNepaliDigits, formatNepalDate, getQuizCountdown, getRemainingAvailability } from '../lib/nepaliUtils';
+import { BookOpen, Trophy, ArrowRight, Clock, Flame, Sparkles, ShieldCheck } from 'lucide-react';
 
 interface HomePageProps {
   navigate: (path: string) => void;
   student: Student | null;
   activeQuiz: Quiz | null;
   recentWinner: WinnerRecord | null;
+  allQuizzes?: Quiz[];
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -15,8 +16,26 @@ export const HomePage: React.FC<HomePageProps> = ({
   student,
   activeQuiz,
   recentWinner,
+  allQuizzes = [],
 }) => {
+  // Live ticker for 1-second dynamic countdown
+  const [, setTicker] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTicker(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const availability = activeQuiz ? getRemainingAvailability(activeQuiz.endAt) : null;
+
+  // Determine current effective quiz for countdown (active or nearest upcoming)
+  const effectiveQuiz = activeQuiz || allQuizzes.find(q => q.status === 'active') || allQuizzes[0] || null;
+
+  const countdown = effectiveQuiz
+    ? getQuizCountdown(effectiveQuiz.startAt, effectiveQuiz.endAt, effectiveQuiz.status)
+    : null;
 
   return (
     <div className="space-y-12 pb-16">
@@ -34,10 +53,100 @@ export const HomePage: React.FC<HomePageProps> = ({
           </h1>
 
           <p className="text-base sm:text-lg text-rose-100/90 font-medium max-w-2xl mx-auto leading-relaxed">
-            "आफ्नो ज्ञान परीक्षण गर्नुहोस्, नयाँ कुरा सिक्नुहोस् र दार्चुला बहुमुखी क्याम्पसको साप्ताहिक विजेता बन्नुहोस्।"
+            "आफ्नोज्ञान परीक्षण गर्नुहोस्, नयाँ कुरा सिक्नुहोस्र दार्चुला बहुमुखी क्याम्पसको साप्ताहिक विजेता बन्नुहोस्।"
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
+          {/* DYNAMIC COUNTDOWN TIMER (Days / Hours / Minutes / Seconds) directly below the tagline */}
+          {countdown && effectiveQuiz && (
+            <div className="max-w-xl mx-auto my-3 p-5 sm:p-6 rounded-3xl bg-slate-950/85 backdrop-blur-xl border border-amber-400/40 shadow-2xl space-y-3.5 text-center animate-in zoom-in-95 duration-200">
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                    countdown.status === 'active'
+                      ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                      : countdown.status === 'upcoming'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      countdown.status === 'active'
+                        ? 'bg-red-500 animate-ping'
+                        : countdown.status === 'upcoming'
+                        ? 'bg-amber-400 animate-pulse'
+                        : 'bg-slate-400'
+                    }`}
+                  ></span>
+                  <span>
+                    {countdown.status === 'active'
+                      ? '🔴 प्रत्यक्ष सञ्चालनमा (Active Quiz)'
+                      : countdown.status === 'upcoming'
+                      ? '⏳ आगामी क्विज (Upcoming Quiz)'
+                      : '🏁 क्विज सम्पन्न'}
+                  </span>
+                </span>
+
+                <span className="text-xs font-semibold text-slate-300">
+                  {effectiveQuiz.title}
+                </span>
+              </div>
+
+              <div className="text-xs sm:text-sm font-bold text-amber-300 flex items-center justify-center gap-1.5">
+                <Clock className="w-4 h-4 text-amber-400" />
+                <span>{countdown.label}</span>
+              </div>
+
+              {/* 4 Countdown Boxes: Days / Hours / Minutes / Seconds */}
+              <div className="grid grid-cols-4 gap-2 sm:gap-3 max-w-md mx-auto pt-1">
+                {/* Days */}
+                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 border border-white/15 shadow-inner">
+                  <div className="text-2xl sm:text-4xl font-black text-amber-400 font-mono tracking-tight">
+                    {toNepaliDigits(countdown.days < 10 ? `0${countdown.days}` : countdown.days)}
+                  </div>
+                  <div className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-wider mt-0.5">
+                    दिन (Days)
+                  </div>
+                </div>
+
+                {/* Hours */}
+                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 border border-white/15 shadow-inner">
+                  <div className="text-2xl sm:text-4xl font-black text-amber-400 font-mono tracking-tight">
+                    {toNepaliDigits(countdown.hours < 10 ? `0${countdown.hours}` : countdown.hours)}
+                  </div>
+                  <div className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-wider mt-0.5">
+                    घण्टा (Hours)
+                  </div>
+                </div>
+
+                {/* Minutes */}
+                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 border border-white/15 shadow-inner">
+                  <div className="text-2xl sm:text-4xl font-black text-amber-400 font-mono tracking-tight">
+                    {toNepaliDigits(countdown.minutes < 10 ? `0${countdown.minutes}` : countdown.minutes)}
+                  </div>
+                  <div className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-wider mt-0.5">
+                    मिनेट (Mins)
+                  </div>
+                </div>
+
+                {/* Seconds */}
+                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 border border-white/15 shadow-inner">
+                  <div className="text-2xl sm:text-4xl font-black text-rose-400 font-mono tracking-tight animate-pulse">
+                    {toNepaliDigits(countdown.seconds < 10 ? `0${countdown.seconds}` : countdown.seconds)}
+                  </div>
+                  <div className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-wider mt-0.5">
+                    सेकेन्ड (Secs)
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 leading-snug">
+                {countdown.subLabel}
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
             <button
               onClick={() => navigate('/todays-quize')}
               className="px-6 py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-base shadow-lg shadow-amber-500/25 transition-all transform hover:-translate-y-0.5 flex items-center gap-2 cursor-pointer"
