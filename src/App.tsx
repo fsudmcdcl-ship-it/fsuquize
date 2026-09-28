@@ -40,7 +40,7 @@ import { AdminSettings } from './admin/AdminSettings';
 function parseCurrentRoute(): string {
   if (typeof window === 'undefined') return '/';
 
-  // 1. Check if redirected from GitHub Pages 404.html via ?/ (e.g. ?/quizemasteradmin or ?/login)
+  // 1. Check if redirected from GitHub Pages 404.html via ?/ (e.g. ?/quizemasteradmin or ?/login or ?/wrongslug)
   if (window.location.search.startsWith('?/')) {
     const raw = window.location.search.slice(2).split('&')[0];
     const decoded = decodeURIComponent(raw.replace(/~and~/g, '&'));
@@ -58,7 +58,7 @@ function parseCurrentRoute(): string {
     return redirectParam.startsWith('/') ? redirectParam : `/${redirectParam}`;
   }
 
-  // 3. Check hash route (e.g. #/login, #/quizemasteradmin)
+  // 3. Check hash route (e.g. #/login, #/quizemasteradmin, #/wrongslug)
   const hash = window.location.hash.replace(/^#\/?/, '/');
   if (hash && hash !== '/') {
     const cleanHash = hash.replace(/\.html$/, '');
@@ -74,46 +74,12 @@ function parseCurrentRoute(): string {
     rawPath = rawPath.slice(0, -1);
   }
 
-  // Recognized known routes
-  const recognizedRoutes = [
-    '/login',
-    '/register',
-    '/pending',
-    '/dashboard',
-    '/todays-quize',
-    '/quiz/',
-    '/winner-list',
-    '/past-questions',
-    '/my-status',
-    '/profile',
-    '/quizemasteradmin',
-    '/students',
-    '/quizzes',
-    '/questions',
-    '/submissions',
-    '/winners',
-    '/reports',
-    '/settings',
-  ];
-
-  for (const r of recognizedRoutes) {
-    const idx = rawPath.indexOf(r);
-    if (idx !== -1) {
-      const matched = rawPath.substring(idx);
-      // If student/admin sub-route accessed directly (e.g. /students), map to admin path
-      if (['/students', '/quizzes', '/questions', '/submissions', '/winners', '/reports', '/settings'].includes(matched)) {
-        return `/quizemasteradmin${matched}`;
-      }
-      return matched;
-    }
+  // Root path
+  if (!rawPath || rawPath === '' || rawPath === '/') {
+    return '/';
   }
 
-  // Handle trailing slashes or subpaths like /students/ or /students
-  if (rawPath === '/students' || rawPath.startsWith('/students/')) {
-    return '/quizemasteradmin/students';
-  }
-
-  // Dynamic admin slug match
+  // 5. Dynamic admin slug match
   try {
     const stored = localStorage.getItem('fsudmc_settings_v2');
     if (stored) {
@@ -130,8 +96,56 @@ function parseCurrentRoute(): string {
     // ignore
   }
 
-  // Default root
-  return '/';
+  // 6. Recognized student and default admin routes
+  const recognizedRoutes = [
+    '/login',
+    '/register',
+    '/pending',
+    '/dashboard',
+    '/todays-quize',
+    '/quiz/',
+    '/winner-list',
+    '/past-questions',
+    '/my-status',
+    '/profile',
+    '/quizemasteradmin',
+  ];
+
+  for (const r of recognizedRoutes) {
+    const idx = rawPath.indexOf(r);
+    if (idx !== -1) {
+      return rawPath.substring(idx);
+    }
+  }
+
+  // Handle direct subpaths like /students, /quizzes, etc.
+  const adminDirectSubRoutes = [
+    '/students',
+    '/quizzes',
+    '/questions',
+    '/past-questions',
+    '/submissions',
+    '/winners',
+    '/reports',
+    '/settings',
+  ];
+  for (const r of adminDirectSubRoutes) {
+    const idx = rawPath.indexOf(r);
+    if (idx !== -1) {
+      let currentSlug = 'quizemasteradmin';
+      try {
+        const stored = localStorage.getItem('fsudmc_settings_v2');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.adminSlug) currentSlug = parsed.adminSlug;
+        }
+      } catch {}
+      return `/${currentSlug}${rawPath.substring(idx)}`;
+    }
+  }
+
+  // Any other wrong slug or unknown URL: return rawPath so NotFoundPage is displayed!
+  return rawPath;
 }
 
 export default function App() {
@@ -141,8 +155,8 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(parseCurrentRoute);
 
   // Global State
-  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
-  const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(null);
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(() => dataService.getCurrentStudent());
+  const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(() => dataService.getCurrentAdmin());
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
   const [allQuizzes, setAllQuizzes] = useState<Quiz[]>([]);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
@@ -241,7 +255,15 @@ export default function App() {
     setAuditLogs(logs);
 
     // Auto-logout ONLY if current student account is explicitly suspended, blocked, or disabled
-    if (s) {
+    // CRITICAL: NEVER kick out or redirect an active admin when student state changes!
+    const isCurrentlyAdminActive = Boolean(
+      a ||
+      dataService.getCurrentAdmin() ||
+      currentPath.includes('admin') ||
+      currentPath.startsWith(`/${dataService.getAdminSlug()}`)
+    );
+
+    if (s && !isCurrentlyAdminActive) {
       if (
         s.status === 'suspended' ||
         s.status === 'blocked' ||
@@ -277,11 +299,18 @@ export default function App() {
         const data = snapshot.val() as Student;
         if (!data) return;
 
+        const isAdminOperating = Boolean(
+          dataService.getCurrentAdmin() ||
+          currentPath.includes('admin') ||
+          currentPath.startsWith(`/${dataService.getAdminSlug()}`)
+        );
+
         if (
-          data.status === 'suspended' ||
-          data.status === 'blocked' ||
-          data.status === 'disabled' ||
-          (data.status as string) === 'disabled'
+          !isAdminOperating &&
+          (data.status === 'suspended' ||
+            data.status === 'blocked' ||
+            data.status === 'disabled' ||
+            (data.status as string) === 'disabled')
         ) {
           dataService.logoutStudent();
           setCurrentStudent(null);
@@ -303,10 +332,16 @@ export default function App() {
     const unsubDoc = onSnapshot(
       doc(firestoreDb, 'students', currentStudent.id),
       (docSnap) => {
+        const isAdminOperating = Boolean(
+          dataService.getCurrentAdmin() ||
+          currentPath.includes('admin') ||
+          currentPath.startsWith(`/${dataService.getAdminSlug()}`)
+        );
+
         if (!docSnap.exists()) {
           // If the account was just created or still pending/local, do not kick out on the initial empty snapshot
           const stillInLocal = dataService.getStudents().some(s => s.id === currentStudent.id);
-          if (docPreviouslyExisted && !stillInLocal) {
+          if (docPreviouslyExisted && !stillInLocal && !isAdminOperating) {
             // Student account was truly permanently deleted by admin
             dataService.logoutStudent();
             setCurrentStudent(null);
@@ -322,11 +357,12 @@ export default function App() {
         if (!data) return;
 
         if (
-          data.status === 'suspended' ||
-          data.status === 'blocked' ||
-          data.status === 'restricted' ||
-          data.status === 'disabled' ||
-          (data.status as string) === 'disabled'
+          !isAdminOperating &&
+          (data.status === 'suspended' ||
+            data.status === 'blocked' ||
+            data.status === 'restricted' ||
+            data.status === 'disabled' ||
+            (data.status as string) === 'disabled')
         ) {
           dataService.logoutStudent();
           setCurrentStudent(null);
@@ -344,6 +380,14 @@ export default function App() {
     );
 
     const handleTerminated = (e: Event) => {
+      const isAdminOperating = Boolean(
+        dataService.getCurrentAdmin() ||
+        currentPath.includes('admin') ||
+        currentPath.startsWith(`/${dataService.getAdminSlug()}`)
+      );
+      if (isAdminOperating) {
+        return;
+      }
       const customEvt = e as CustomEvent<{ reason?: string }>;
       const reason = customEvt.detail?.reason || '';
       // Only terminate session if account is suspended, blocked, or restricted
@@ -479,8 +523,25 @@ export default function App() {
       );
     }
 
+    // Normalize subpath whether visited via /{adminSlug}/..., /quizemasteradmin/..., or directly
+    let adminSubPath = '/dashboard';
+    const cleanAdminPrefix = `${adminPrefix}/`;
+    if (currentPath.startsWith(cleanAdminPrefix)) {
+      adminSubPath = '/' + currentPath.slice(cleanAdminPrefix.length);
+    } else if (currentPath.startsWith('/quizemasteradmin/')) {
+      adminSubPath = '/' + currentPath.slice('/quizemasteradmin/'.length);
+    } else if (currentPath === adminPrefix || currentPath === '/quizemasteradmin') {
+      adminSubPath = '/dashboard';
+    } else {
+      adminSubPath = currentPath;
+    }
+
+    if (adminSubPath.endsWith('/') && adminSubPath.length > 1) {
+      adminSubPath = adminSubPath.slice(0, -1);
+    }
+
     let adminContent: React.ReactNode = null;
-    if (currentPath === adminPrefix || currentPath === `${adminPrefix}/dashboard`) {
+    if (adminSubPath === '' || adminSubPath === '/' || adminSubPath === '/dashboard') {
       adminContent = (
         <AdminDashboard
           students={allStudents}
@@ -491,7 +552,7 @@ export default function App() {
           navigate={navigate}
         />
       );
-    } else if (currentPath === `${adminPrefix}/quizzes`) {
+    } else if (adminSubPath === '/quizzes') {
       adminContent = (
         <AdminQuizzes
           quizzes={allQuizzes}
@@ -499,7 +560,7 @@ export default function App() {
           onRefresh={refreshData}
         />
       );
-    } else if (currentPath === `${adminPrefix}/students`) {
+    } else if (adminSubPath === '/students') {
       adminContent = (
         <AdminStudents
           students={allStudents}
@@ -507,14 +568,14 @@ export default function App() {
           onRefresh={refreshData}
         />
       );
-    } else if (currentPath === `${adminPrefix}/questions`) {
+    } else if (adminSubPath === '/questions') {
       adminContent = (
         <AdminQuestions
           questions={allQuestions}
           onRefresh={refreshData}
         />
       );
-    } else if (currentPath === `${adminPrefix}/past-questions`) {
+    } else if (adminSubPath === '/past-questions') {
       adminContent = (
         <AdminPastQuestions
           quizzes={allQuizzes}
@@ -523,7 +584,7 @@ export default function App() {
           navigate={navigate}
         />
       );
-    } else if (currentPath === `${adminPrefix}/submissions`) {
+    } else if (adminSubPath === '/submissions') {
       adminContent = (
         <AdminSubmissions
           sessions={allSessions}
@@ -533,7 +594,7 @@ export default function App() {
           onRefresh={refreshData}
         />
       );
-    } else if (currentPath === `${adminPrefix}/winners`) {
+    } else if (adminSubPath === '/winners') {
       adminContent = (
         <AdminWinners
           quizzes={allQuizzes}
@@ -542,7 +603,7 @@ export default function App() {
           onRefresh={refreshData}
         />
       );
-    } else if (currentPath === `${adminPrefix}/reports`) {
+    } else if (adminSubPath === '/reports') {
       adminContent = (
         <AdminReports
           quizzes={allQuizzes}
@@ -551,10 +612,11 @@ export default function App() {
           questions={allQuestions}
         />
       );
-    } else if (currentPath === `${adminPrefix}/settings`) {
+    } else if (adminSubPath === '/settings') {
       adminContent = (
         <AdminSettings
           onRefresh={refreshData}
+          navigate={navigate}
         />
       );
     } else {
@@ -873,7 +935,7 @@ export default function App() {
       );
     }
   } else {
-    studentPageContent = <NotFoundPage navigate={navigate} />;
+    studentPageContent = <NotFoundPage navigate={navigate} requestedPath={currentPath} />;
   }
 
   return (

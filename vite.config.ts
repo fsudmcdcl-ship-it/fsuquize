@@ -87,8 +87,29 @@ export default defineConfig(() => {
   return {
     base: '/',
     define: {
+      'import.meta.env.VITE_FIREBASE_API_KEY': JSON.stringify(
+        process.env.VITE_FIREBASE_API_KEY || 'AIzaSyA_RY3OVMWE1bBIUXs61wKUsPFeWjViR7o'
+      ),
+      'import.meta.env.VITE_FIREBASE_AUTH_DOMAIN': JSON.stringify(
+        process.env.VITE_FIREBASE_AUTH_DOMAIN || 'quize-c3025.firebaseapp.com'
+      ),
       'import.meta.env.VITE_FIREBASE_DATABASE_URL': JSON.stringify(
-        'https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app'
+        process.env.VITE_FIREBASE_DATABASE_URL || 'https://quize-c3025-default-rtdb.asia-southeast1.firebasedatabase.app'
+      ),
+      'import.meta.env.VITE_FIREBASE_PROJECT_ID': JSON.stringify(
+        process.env.VITE_FIREBASE_PROJECT_ID || 'quize-c3025'
+      ),
+      'import.meta.env.VITE_FIREBASE_STORAGE_BUCKET': JSON.stringify(
+        process.env.VITE_FIREBASE_STORAGE_BUCKET || 'quize-c3025.firebasestorage.app'
+      ),
+      'import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID': JSON.stringify(
+        process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '62815879515'
+      ),
+      'import.meta.env.VITE_FIREBASE_APP_ID': JSON.stringify(
+        process.env.VITE_FIREBASE_APP_ID || '1:62815879515:web:8de7b15748cf6ff22a9a7e'
+      ),
+      'import.meta.env.VITE_FIREBASE_MEASUREMENT_ID': JSON.stringify(
+        process.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-XHX6RBHH12'
       ),
     },
     plugins: [react(), tailwindcss(), githubPagesSpaRoutesPlugin()],

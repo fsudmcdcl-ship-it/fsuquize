@@ -696,7 +696,7 @@ class DataService {
                   if (match) {
                     if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'disabled') {
                       this.logoutStudent();
-                      if (typeof window !== 'undefined') {
+                      if (typeof window !== 'undefined' && !this.getCurrentAdmin()) {
                         sessionStorage.setItem('student_kickout_reason', match.status);
                         window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
                       }
@@ -817,7 +817,7 @@ class DataService {
       const match = all.find(item => item.id.toLowerCase() === s.id.toLowerCase());
       if (!match) {
         this.setStorage(STORAGE_KEYS.CURRENT_STUDENT, null);
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !this.getCurrentAdmin()) {
           sessionStorage.setItem('student_kickout_reason', 'deleted');
           window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
         }
@@ -825,7 +825,7 @@ class DataService {
       }
       if (match.status === 'suspended' || match.status === 'blocked' || match.status === 'restricted' || match.status === 'disabled') {
         this.setStorage(STORAGE_KEYS.CURRENT_STUDENT, null);
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !this.getCurrentAdmin()) {
           sessionStorage.setItem('student_kickout_reason', match.status);
           window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: match.status } }));
         }
@@ -1448,7 +1448,7 @@ class DataService {
     if (cur && cur.id === studentId) {
       if (status === 'suspended' || status === 'blocked' || status === 'restricted' || status === 'disabled') {
         this.logoutStudent();
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !this.getCurrentAdmin()) {
           sessionStorage.setItem('student_kickout_reason', status);
           window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: status } }));
         }
@@ -1580,7 +1580,7 @@ class DataService {
     const cur = this.getCurrentStudent();
     if (cur && (cur.id === studentId || (targetUid && cur.uid === targetUid))) {
       this.logoutStudent();
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && !this.getCurrentAdmin()) {
         sessionStorage.setItem('student_kickout_reason', 'deleted');
         window.dispatchEvent(new CustomEvent('student_session_terminated', { detail: { reason: 'deleted' } }));
       }
@@ -3464,6 +3464,11 @@ class DataService {
    * This guarantees that when a user picks questions once, they are NOT given another chance to pick again!
    */
   pickAndLockQuestionsForStudent(quizId: string, studentId: string): Question[] {
+    const targetQuiz = this.getQuizzes().find(q => q.id === quizId);
+    if (targetQuiz && new Date(targetQuiz.startAt).getTime() > Date.now()) {
+      throw new Error('क्विज अझै सुरु भएको छैन। प्रतीक्षा अवधि जारी छ।');
+    }
+
     const all = this.getQuestions(quizId);
     if (!all || all.length === 0) return [];
     const bankMap = new Map(all.map(q => [q.id, q]));
@@ -3636,6 +3641,11 @@ class DataService {
     // Requirement: Check approved status before allowing session creation
     if (!this.isStudentApproved(student)) {
       throw new Error('तपाईंको खाता अझै स्वीकृत भएको छैन। प्रशासकीय स्वीकृतिपछि मात्र क्विज सुरु गर्न सकिनेछ।');
+    }
+
+    // Requirement: Strictly enforce waiting period before quiz starts
+    if (new Date(quiz.startAt).getTime() > Date.now()) {
+      throw new Error('क्विज अझै सुरु भएको छैन। प्रतीक्षा अवधि (Waiting Period) समाप्त भएपछि मात्र क्विज सुरु गर्न सकिनेछ।');
     }
 
     const existing = this.getStudentSession(quiz.id, student.id);

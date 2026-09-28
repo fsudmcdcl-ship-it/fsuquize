@@ -202,6 +202,16 @@ export function formatNepalDate(dateInput: string | Date | number, includeTime =
 }
 
 /**
+ * Helper to check whether quiz startAt is in the future (waiting period active)
+ */
+export function isQuizUpcoming(startAtIso?: string): boolean {
+  if (!startAtIso) return false;
+  const start = new Date(startAtIso).getTime();
+  if (isNaN(start)) return false;
+  return Date.now() < start;
+}
+
+/**
  * Calculates countdown units (days, hours, minutes, seconds) for an upcoming or active quiz
  */
 export function getQuizCountdown(startAtIso: string, endAtIso: string, quizStatus?: string): {
@@ -231,8 +241,29 @@ export function getQuizCountdown(startAtIso: string, endAtIso: string, quizStatu
     };
   }
 
-  // Priority 1: If explicitly active, or if current time is within running window (and endTime has not passed):
-  if ((quizStatus === 'active' || (now >= startTime && now < endTime)) && now < endTime && quizStatus !== 'closed') {
+  // Priority 1: Quiz is upcoming / in waiting period (startAt is in the future, regardless of active status toggle)
+  if (now < startTime && quizStatus !== 'closed' && quizStatus !== 'archived') {
+    const diffMs = startTime - now;
+    const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
+    const days = Math.floor(totalSecs / 86400);
+    const hours = Math.floor((totalSecs % 86400) / 3600);
+    const minutes = Math.floor((totalSecs % 3600) / 60);
+    const seconds = totalSecs % 60;
+
+    return {
+      status: 'upcoming',
+      label: 'क्विज सुरु हुन बाँकी समय (Waiting Period)',
+      subLabel: 'प्रतीक्षा गर्नुहोस्! निर्धारित समय पुगेपछि मात्र क्विज प्रत्यक्ष सुरु हुनेछ।',
+      days,
+      hours,
+      minutes,
+      seconds,
+      totalSeconds: totalSecs,
+    };
+  }
+
+  // Priority 2: Quiz is actively running (current time is between start and end)
+  if (now >= startTime && now < endTime && quizStatus !== 'closed' && quizStatus !== 'archived') {
     const diffMs = endTime - now;
     const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
     const days = Math.floor(totalSecs / 86400);
@@ -244,27 +275,6 @@ export function getQuizCountdown(startAtIso: string, endAtIso: string, quizStatu
       status: 'active',
       label: 'क्विज समाप्त हुन बाँकी समय',
       subLabel: 'क्विज प्रत्यक्ष सञ्चालनमा छ! समयसीमा भित्र सहभागी भई सबमिट गर्नुहोस्।',
-      days,
-      hours,
-      minutes,
-      seconds,
-      totalSeconds: totalSecs,
-    };
-  }
-
-  // Priority 2: Upcoming quiz (startAt is in the future, and quiz is not active/closed)
-  if (now < startTime && quizStatus !== 'active' && quizStatus !== 'closed') {
-    const diffMs = startTime - now;
-    const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
-    const days = Math.floor(totalSecs / 86400);
-    const hours = Math.floor((totalSecs % 86400) / 3600);
-    const minutes = Math.floor((totalSecs % 3600) / 60);
-    const seconds = totalSecs % 60;
-
-    return {
-      status: 'upcoming',
-      label: 'क्विज सुरु हुन बाँकी समय',
-      subLabel: 'तयार रहनुहोस्! तोकिएको समयमा क्विज प्रत्यक्ष सुरु हुनेछ।',
       days,
       hours,
       minutes,
@@ -318,7 +328,8 @@ export function formatDurationSeconds(seconds: number): string {
 /**
  * Calculates remaining availability relative to current time
  */
-export function getRemainingAvailability(endAtIso: string): {
+export function getRemainingAvailability(endAtIso: string, startAtIso?: string): {
+  isUpcoming: boolean;
   isExpired: boolean;
   text: string;
   days: number;
@@ -326,11 +337,38 @@ export function getRemainingAvailability(endAtIso: string): {
   minutes: number;
 } {
   const now = Date.now();
+
+  // If startAt is provided and is in the future, quiz is in waiting period
+  if (startAtIso) {
+    const start = new Date(startAtIso).getTime();
+    if (!isNaN(start) && now < start) {
+      const diffMs = start - now;
+      const totalMinutes = Math.floor(diffMs / (1000 * 60));
+      const days = Math.floor(totalMinutes / (60 * 24));
+      const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+      const minutes = totalMinutes % 60;
+
+      const parts: string[] = [];
+      if (days > 0) parts.push(`${toNepaliDigits(days)} दिन`);
+      if (hours > 0) parts.push(`${toNepaliDigits(hours)} घण्टा`);
+      parts.push(`${toNepaliDigits(minutes)} मिनेट`);
+
+      return {
+        isUpcoming: true,
+        isExpired: false,
+        text: `सुरु हुन ${parts.join(' ')} बाँकी`,
+        days,
+        hours,
+        minutes
+      };
+    }
+  }
+
   const end = new Date(endAtIso).getTime();
   const diffMs = end - now;
 
   if (diffMs <= 0 || isNaN(diffMs)) {
-    return { isExpired: true, text: 'क्विज बन्द भएको छ', days: 0, hours: 0, minutes: 0 };
+    return { isUpcoming: false, isExpired: true, text: 'क्विज बन्द भएको छ', days: 0, hours: 0, minutes: 0 };
   }
 
   const totalMinutes = Math.floor(diffMs / (1000 * 60));
@@ -344,6 +382,7 @@ export function getRemainingAvailability(endAtIso: string): {
   parts.push(`${toNepaliDigits(minutes)} मिनेट`);
 
   return {
+    isUpcoming: false,
     isExpired: false,
     text: `${parts.join(' ')} बाँकी`,
     days,

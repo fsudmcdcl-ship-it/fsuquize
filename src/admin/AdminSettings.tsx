@@ -6,9 +6,10 @@ import { Settings, Save, CheckCircle2, Database, ShieldCheck, Flame, AlertCircle
 
 interface AdminSettingsProps {
   onRefresh: () => void;
+  navigate?: (path: string) => void;
 }
 
-export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
+export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh, navigate }) => {
   const currentSettings = dataService.getSettings();
   const [campusName, setCampusName] = useState(currentSettings.campusName);
   const [subTitle, setSubTitle] = useState(currentSettings.subTitle);
@@ -43,6 +44,9 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onRefresh }) => {
     setAdminSlug(updatedSlug);
     setSlugSavedNotice(true);
     setTimeout(() => setSlugSavedNotice(false), 3500);
+    if (navigate) {
+      navigate(`/${updatedSlug}/settings`);
+    }
     onRefresh();
   };
 

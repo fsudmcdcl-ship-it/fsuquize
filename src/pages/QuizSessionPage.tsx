@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../lib/dataService';
 import type { Student, Quiz, Question, QuizSession, QuestionOption } from '../types/quiz';
-import { toNepaliDigits, formatTimer, formatDurationSeconds } from '../lib/nepaliUtils';
+import { toNepaliDigits, formatTimer, formatDurationSeconds, formatNepalDate, isQuizUpcoming, getQuizCountdown } from '../lib/nepaliUtils';
 import { Clock, AlertTriangle, CheckCircle, ArrowLeft, ArrowRight, Send, Check, X, ShieldAlert, Award, Dices, Sparkles, Shuffle, CheckCircle2, Lock, BookOpen } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -39,9 +39,23 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
     return false;
   });
 
+  const currentQuiz = (activeQuiz?.id === quizId ? activeQuiz : dataService.getQuizzes().find(q => q.id === quizId)) || activeQuiz;
+  const isUpcoming = currentQuiz ? isQuizUpcoming(currentQuiz.startAt) : false;
+
+  // Live timer interval to update countdown if in waiting period
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (isUpcoming) {
+      const timer = setInterval(() => {
+        setTick(t => t + 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [isUpcoming]);
+
   // Check if session or locked picked questions already exist for this student
   useEffect(() => {
-    if (!activeQuiz) return;
+    if (!currentQuiz) return;
 
     if (student.reExamAllowed && (!student.reExamQuizId || student.reExamQuizId === quizId)) {
       setSession(null);
@@ -63,7 +77,7 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
         .filter((q): q is Question => Boolean(q));
 
       setQuestions(matched);
-    } else {
+    } else if (!isUpcoming) {
       // Check if student has already locked questions before session was officially started
       const lockedIds = dataService.getPickedQuestionsForStudent(quizId, student.id);
       if (lockedIds && lockedIds.length === 10) {
@@ -78,37 +92,56 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
         }
       }
     }
-  }, [activeQuiz, quizId, student]);
+  }, [currentQuiz, quizId, student, isUpcoming]);
 
   // Handle Pick Questions for Me action (Locks them once and prevents picking again)
   const handleGenerateQuestions = () => {
+    if (isUpcoming) {
+      alert('क्विज अझै सुरु भएको छैन। प्रतीक्षा अवधि समाप्त भएपछि मात्र प्रश्न छनोट गर्न पाइनेछ।');
+      return;
+    }
     if (hasPickedQuestions) return; // Disallow picking again!
     setIsPickingQuestions(true);
     setTimeout(() => {
-      const generated = dataService.pickAndLockQuestionsForStudent(quizId, student.id);
-      setPreviewQuestions(generated);
-      setIsPickingQuestions(false);
-      setHasPickedQuestions(true);
+      try {
+        const generated = dataService.pickAndLockQuestionsForStudent(quizId, student.id);
+        setPreviewQuestions(generated);
+        setIsPickingQuestions(false);
+        setHasPickedQuestions(true);
+      } catch (err: unknown) {
+        setIsPickingQuestions(false);
+        const msg = err instanceof Error ? err.message : String(err);
+        alert(msg);
+      }
     }, 800);
   };
 
   // Start the quiz with the picked questions (or random 10 if none picked yet)
   const handleStartSession = () => {
-    if (!activeQuiz) return;
+    if (isUpcoming) {
+      alert('क्विज अझै सुरु भएको छैन। प्रतीक्षा अवधि समाप्त भएपछि मात्र परीक्षा सुरु हुनेछ।');
+      return;
+    }
+    if (!currentQuiz) return;
     const qIds = previewQuestions.length === 10
       ? previewQuestions.map(q => q.id)
       : undefined;
 
-    const newSession = dataService.startQuizSession(activeQuiz, student, qIds);
-    setSession(newSession);
+    try {
+      const newSession = dataService.startQuizSession(currentQuiz, student, qIds);
+      setSession(newSession);
 
-    const allBank = dataService.getQuestions(quizId);
-    const bankMap = new Map(allBank.map(q => [q.id, q]));
-    const matched = newSession.selectedQuestionIds
-      .map(id => bankMap.get(id))
-      .filter((q): q is Question => Boolean(q));
-    setQuestions(matched);
-    onSessionUpdated?.();
+      const allBank = dataService.getQuestions(quizId);
+      const bankMap = new Map(allBank.map(q => [q.id, q]));
+      const matched = newSession.selectedQuestionIds
+        .map(id => bankMap.get(id))
+        .filter((q): q is Question => Boolean(q));
+      setQuestions(matched);
+      onSessionUpdated?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(msg);
+    }
   };
 
   // Timer countdown management
@@ -190,6 +223,88 @@ export const QuizSessionPage: React.FC<QuizSessionPageProps> = ({
       }
     }
   };
+
+  // If quiz is in waiting period (not yet started), show the full waiting screen
+  if (isUpcoming && currentQuiz && (!session || session.status !== 'in_progress')) {
+    const countdown = getQuizCountdown(currentQuiz.startAt, currentQuiz.endAt, currentQuiz.status);
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-10 space-y-6">
+        <button
+          onClick={() => navigate('/todays-quize')}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>क्विज जानकारीमा फर्कनुहोस्</span>
+        </button>
+
+        <div className="bg-white rounded-3xl p-8 sm:p-12 border-2 border-amber-300 shadow-xl text-center space-y-6">
+          <div className="w-20 h-20 bg-amber-100 text-amber-700 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
+            <Clock className="w-10 h-10 text-amber-600 animate-pulse" />
+          </div>
+
+          <div>
+            <span className="text-xs font-black uppercase tracking-widest text-amber-800 bg-amber-100 px-3.5 py-1.5 rounded-full border border-amber-200">
+              प्रतीक्षा अवधि (Waiting Period) जारी
+            </span>
+            <h1 className="text-2xl sm:text-4xl font-black text-slate-900 mt-3">
+              क्विज अझै सुरु भएको छैन!
+            </h1>
+            <p className="text-sm text-slate-600 max-w-lg mx-auto mt-2 leading-relaxed">
+              यो क्विजको निर्धारित समय <b>{formatNepalDate(currentQuiz.startAt, true)}</b> मा मात्र सुरु हुनेछ। क्याम्पस परीक्षा निष्पक्षताका लागि क्विज सुरु हुनु अगावै कुनै पनि विद्यार्थीलाई प्रश्नपत्र हेर्न, प्रश्न छनोट गर्न वा परीक्षा दिन अनुमति छैन।
+            </p>
+          </div>
+
+          {/* 4-Box Countdown */}
+          <div className="grid grid-cols-4 gap-2 sm:gap-4 max-w-md mx-auto">
+            <div className="bg-amber-50/80 rounded-2xl p-3 sm:p-4 border border-amber-200 shadow-xs">
+              <div className="text-2xl sm:text-4xl font-black text-amber-700 font-mono">
+                {toNepaliDigits(countdown.days < 10 ? `0${countdown.days}` : countdown.days)}
+              </div>
+              <div className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase mt-1">दिन (Days)</div>
+            </div>
+            <div className="bg-amber-50/80 rounded-2xl p-3 sm:p-4 border border-amber-200 shadow-xs">
+              <div className="text-2xl sm:text-4xl font-black text-amber-700 font-mono">
+                {toNepaliDigits(countdown.hours < 10 ? `0${countdown.hours}` : countdown.hours)}
+              </div>
+              <div className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase mt-1">घण्टा (Hours)</div>
+            </div>
+            <div className="bg-amber-50/80 rounded-2xl p-3 sm:p-4 border border-amber-200 shadow-xs">
+              <div className="text-2xl sm:text-4xl font-black text-amber-700 font-mono">
+                {toNepaliDigits(countdown.minutes < 10 ? `0${countdown.minutes}` : countdown.minutes)}
+              </div>
+              <div className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase mt-1">मिनेट (Mins)</div>
+            </div>
+            <div className="bg-amber-50/80 rounded-2xl p-3 sm:p-4 border border-amber-200 shadow-xs">
+              <div className="text-2xl sm:text-4xl font-black text-rose-600 font-mono animate-pulse">
+                {toNepaliDigits(countdown.seconds < 10 ? `0${countdown.seconds}` : countdown.seconds)}
+              </div>
+              <div className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase mt-1">सेकेन्ड (Secs)</div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-950 font-medium max-w-lg mx-auto">
+            🔒 <b>नियम:</b> तोकिएको समय पूरा हुनासाथ यहाँ स्वचालित रूपमा प्रश्नहरू छान्ने र क्विज सुरु गर्ने विकल्प खुल्नेछ। कृपया प्रतीक्षा गर्नुहोस्।
+          </div>
+
+          <div className="pt-2 flex flex-wrap justify-center gap-3">
+            <button
+              onClick={() => navigate('/todays-quize')}
+              className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow transition cursor-pointer flex items-center gap-2"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>क्विज विवरणमा फर्कनुहोस्</span>
+            </button>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition cursor-pointer"
+            >
+              विद्यार्थी ड्यासबोर्डमा जानुहोस्
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!session) {
     return (

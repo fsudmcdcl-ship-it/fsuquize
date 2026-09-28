@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Student, Quiz, QuizSession } from '../types/quiz';
-import { toNepaliDigits, formatNepalDate, getRemainingAvailability } from '../lib/nepaliUtils';
-import { BookOpen, Trophy, Award, CheckCircle, Clock, ArrowRight, User, AlertTriangle, Dices } from 'lucide-react';
+import { toNepaliDigits, formatNepalDate, getRemainingAvailability, isQuizUpcoming, getQuizCountdown } from '../lib/nepaliUtils';
+import { BookOpen, Trophy, Award, CheckCircle, Clock, ArrowRight, User, AlertTriangle, Dices, Lock } from 'lucide-react';
 import { StudentQuestionPickerModal } from '../components/StudentQuestionPickerModal';
 import { dataService } from '../lib/dataService';
 
@@ -23,6 +23,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onLogout,
 }) => {
   const [showPickerModal, setShowPickerModal] = useState(false);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const isUpcoming = activeQuiz ? isQuizUpcoming(activeQuiz.startAt) : false;
+  const countdown = activeQuiz ? getQuizCountdown(activeQuiz.startAt, activeQuiz.endAt, activeQuiz.status) : null;
   const availability = activeQuiz ? getRemainingAvailability(activeQuiz.endAt) : null;
 
   // Calculate student statistics
@@ -195,15 +206,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
-                <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
-                आजको क्विज
-              </span>
-              {availability && !availability.isExpired && (
-                <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200/60 px-2.5 py-1 rounded-lg flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" />
-                  {availability.text}
-                </span>
+              {isUpcoming ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    <span className="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
+                    ⏳ आगामी क्विज (Waiting Period)
+                  </span>
+                  {countdown && (
+                    <span className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
+                      <Clock className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                      <span>सुरु हुन बाँकी: {countdown.days > 0 ? `${toNepaliDigits(countdown.days)} दिन ` : ''}{toNepaliDigits(countdown.hours < 10 ? `0${countdown.hours}` : countdown.hours)}:{toNepaliDigits(countdown.minutes < 10 ? `0${countdown.minutes}` : countdown.minutes)}:{toNepaliDigits(countdown.seconds < 10 ? `0${countdown.seconds}` : countdown.seconds)}</span>
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                    <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
+                    आजको क्विज (प्रत्यक्ष)
+                  </span>
+                  {availability && !availability.isExpired && (
+                    <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200/60 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{availability.text}</span>
+                    </span>
+                  )}
+                </>
               )}
             </div>
             <h2 className="text-2xl font-black text-slate-900 mt-2">
@@ -247,6 +275,28 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 <span>क्विज जारी राख्नुहोस् (Resume)</span>
                 <ArrowRight className="w-5 h-5" />
               </button>
+            ) : isUpcoming ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled
+                  className="px-5 py-3.5 bg-slate-100 border border-slate-300 text-slate-400 font-bold text-xs sm:text-sm rounded-2xl cursor-not-allowed flex items-center gap-2 shadow-inner"
+                  title="क्विज सुरु हुन बाँकी छ"
+                >
+                  <Lock className="w-4 h-4 text-slate-400" />
+                  <span>🔒 सुरु हुन बाँकी (Waiting Period)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigate('/todays-quize')}
+                  className="px-6 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs sm:text-sm rounded-2xl shadow-md transition flex items-center gap-2 cursor-pointer"
+                >
+                  <Clock className="w-4 h-4 text-slate-950" />
+                  <span>काउन्टडाउन तथा विवरण हेर्नुहोस्</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             ) : (
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -302,7 +352,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       </div>
 
       {/* Pick Questions for Me Generator Modal */}
-      {showPickerModal && activeQuiz && (
+      {showPickerModal && activeQuiz && !isUpcoming && (
         <StudentQuestionPickerModal
           isOpen={showPickerModal}
           onClose={() => setShowPickerModal(false)}
@@ -310,8 +360,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           studentId={student.id}
           onStartQuiz={(selectedQuestionIds) => {
             setShowPickerModal(false);
-            dataService.startQuizSession(activeQuiz, student, selectedQuestionIds);
-            navigate(`/quiz/${activeQuiz.id}`);
+            try {
+              dataService.startQuizSession(activeQuiz, student, selectedQuestionIds);
+              navigate(`/quiz/${activeQuiz.id}`);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              alert(msg);
+            }
           }}
         />
       )}

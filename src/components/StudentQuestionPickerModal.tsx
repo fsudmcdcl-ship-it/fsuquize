@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Quiz, Question } from '../types/quiz';
 import { dataService } from '../lib/dataService';
-import { toNepaliDigits } from '../lib/nepaliUtils';
+import { toNepaliDigits, isQuizUpcoming, getQuizCountdown, formatNepalDate } from '../lib/nepaliUtils';
 import { Dices, Sparkles, CheckCircle2, ArrowRight, X, Clock, Shuffle, Lock } from 'lucide-react';
 
 interface StudentQuestionPickerModalProps {
@@ -22,10 +22,21 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
   const [isGenerating, setIsGenerating] = useState(false);
   const [pickedQuestions, setPickedQuestions] = useState<Question[]>([]);
   const [hasPicked, setHasPicked] = useState(false);
+  const [, setTick] = useState(0);
+
+  const isUpcoming = quiz ? isQuizUpcoming(quiz.startAt) : false;
+  const countdown = quiz ? getQuizCountdown(quiz.startAt, quiz.endAt, quiz.status) : null;
+
+  useEffect(() => {
+    if (isUpcoming && isOpen) {
+      const timer = setInterval(() => setTick(t => t + 1), 1000);
+      return () => clearInterval(timer);
+    }
+  }, [isUpcoming, isOpen]);
 
   // Check if questions were already picked/locked for this student & quiz
   useEffect(() => {
-    if (!quiz || !studentId) return;
+    if (!quiz || !studentId || isUpcoming) return;
     const existingIds = dataService.getPickedQuestionsForStudent(quiz.id, studentId);
     if (existingIds && existingIds.length === 10) {
       const all = dataService.getQuestions(quiz.id);
@@ -36,11 +47,15 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
         setHasPicked(true);
       }
     }
-  }, [quiz, studentId]);
+  }, [quiz, studentId, isUpcoming]);
 
   if (!isOpen) return null;
 
   const handlePickRandomQuestions = () => {
+    if (isUpcoming) {
+      alert('क्विज अझै सुरु भएको छैन। प्रतीक्षा अवधि समाप्त भएपछि मात्र प्रश्न छनोट गर्न सकिनेछ।');
+      return;
+    }
     // Strictly prevent picking again if already picked once!
     if (hasPicked) return;
 
@@ -49,19 +64,29 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
 
     // Animated effect to draw 10 questions from the 50-question bank and lock them
     setTimeout(() => {
-      let generated: Question[] = [];
-      if (studentId) {
-        generated = dataService.pickAndLockQuestionsForStudent(quiz.id, studentId);
-      } else {
-        generated = dataService.pickRandom10From50(quiz.id);
+      try {
+        let generated: Question[] = [];
+        if (studentId) {
+          generated = dataService.pickAndLockQuestionsForStudent(quiz.id, studentId);
+        } else {
+          generated = dataService.pickRandom10From50(quiz.id);
+        }
+        setPickedQuestions(generated);
+        setIsGenerating(false);
+        setHasPicked(true);
+      } catch (err: unknown) {
+        setIsGenerating(false);
+        const msg = err instanceof Error ? err.message : String(err);
+        alert(msg);
       }
-      setPickedQuestions(generated);
-      setIsGenerating(false);
-      setHasPicked(true);
     }, 850);
   };
 
   const handleConfirmAndStart = () => {
+    if (isUpcoming) {
+      alert('क्विज अझै सुरु भएको छैन। प्रतीक्षा अवधि जारी छ।');
+      return;
+    }
     if (pickedQuestions.length !== 10) return;
     const ids = pickedQuestions.map(q => q.id);
     if (studentId) {
@@ -121,7 +146,48 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
           </div>
 
           {/* Interactive Picker Trigger Area */}
-          {!hasPicked && !isGenerating && (
+          {isUpcoming && countdown ? (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-6 sm:p-8 text-center space-y-4">
+              <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                <Clock className="w-8 h-8 text-amber-600 animate-pulse" />
+              </div>
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-amber-800 bg-amber-100 px-3 py-1 rounded-full">
+                  प्रतीक्षा अवधि (Waiting Period)
+                </span>
+                <h4 className="text-lg font-black text-slate-900 mt-2">
+                  यो क्विज हाल प्रतीक्षा अवधिमा छ
+                </h4>
+                <p className="text-xs text-slate-600 max-w-md mx-auto mt-1 leading-relaxed">
+                  क्विज सुरु हुने निर्धारित समय <b>{formatNepalDate(quiz.startAt, true)}</b> मा मात्र प्रश्न छनोट तथा परीक्षा खुल्नेछ।
+                </p>
+              </div>
+
+              {/* 4-Box Countdown */}
+              <div className="grid grid-cols-4 gap-2 max-w-xs mx-auto pt-1">
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+                  <div className="font-mono font-black text-amber-700 text-xl">{toNepaliDigits(countdown.days < 10 ? `0${countdown.days}` : countdown.days)}</div>
+                  <div className="text-[10px] text-slate-500 uppercase mt-0.5">दिन</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+                  <div className="font-mono font-black text-amber-700 text-xl">{toNepaliDigits(countdown.hours < 10 ? `0${countdown.hours}` : countdown.hours)}</div>
+                  <div className="text-[10px] text-slate-500 uppercase mt-0.5">घण्टा</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+                  <div className="font-mono font-black text-amber-700 text-xl">{toNepaliDigits(countdown.minutes < 10 ? `0${countdown.minutes}` : countdown.minutes)}</div>
+                  <div className="text-[10px] text-slate-500 uppercase mt-0.5">मिनेट</div>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+                  <div className="font-mono font-black text-rose-600 text-xl animate-pulse">{toNepaliDigits(countdown.seconds < 10 ? `0${countdown.seconds}` : countdown.seconds)}</div>
+                  <div className="text-[10px] text-slate-500 uppercase mt-0.5">सेकेन्ड</div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-100/70 rounded-xl border border-amber-200 text-xs text-amber-900 font-medium">
+                🔒 निष्पक्षताका लागि समय नपुग्दासम्म प्रश्नहरू हेर्न वा सुरक्षित गर्न निषेध गरिएको छ।
+              </div>
+            </div>
+          ) : !hasPicked && !isGenerating ? (
             <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl p-8 text-center space-y-4">
               <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
                 <Shuffle className="w-8 h-8 text-red-600" />
@@ -144,10 +210,10 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
                 <span>🎲 मेरो लागि प्रश्न छान्नुहोस् (Pick Questions for Me)</span>
               </button>
             </div>
-          )}
+          ) : null}
 
           {/* Shuffling Loading State */}
-          {isGenerating && (
+          {!isUpcoming && isGenerating && (
             <div className="bg-slate-50 border border-slate-200 rounded-3xl p-10 text-center space-y-4">
               <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto" />
               <div>
@@ -162,7 +228,7 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
           )}
 
           {/* Picked Questions Preview */}
-          {hasPicked && !isGenerating && pickedQuestions.length === 10 && (
+          {!isUpcoming && hasPicked && !isGenerating && pickedQuestions.length === 10 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl">
                 <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
@@ -218,24 +284,35 @@ export const StudentQuestionPickerModal: React.FC<StudentQuestionPickerModalProp
           </button>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={hasPicked ? handleConfirmAndStart : handlePickRandomQuestions}
-              disabled={isGenerating}
-              className="px-6 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md shadow-red-600/20 transition flex items-center gap-2 cursor-pointer"
-            >
-              {hasPicked ? (
-                <>
-                  <span>🚀 अब क्विज सुरु गर्नुहोस्</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              ) : (
-                <>
-                  <Dices className="w-4 h-4" />
-                  <span>🎲 प्रश्न छान्नुहोस् (Pick Questions)</span>
-                </>
-              )}
-            </button>
+            {isUpcoming ? (
+              <button
+                type="button"
+                disabled
+                className="px-6 py-2.5 bg-slate-200 text-slate-500 font-bold text-xs rounded-xl cursor-not-allowed flex items-center gap-2"
+              >
+                <Lock className="w-4 h-4 text-slate-400" />
+                <span>प्रतीक्षा अवधि जारी (Locked)</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={hasPicked ? handleConfirmAndStart : handlePickRandomQuestions}
+                disabled={isGenerating}
+                className="px-6 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md shadow-red-600/20 transition flex items-center gap-2 cursor-pointer"
+              >
+                {hasPicked ? (
+                  <>
+                    <span>🚀 अब क्विज सुरु गर्नुहोस्</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                ) : (
+                  <>
+                    <Dices className="w-4 h-4" />
+                    <span>🎲 प्रश्न छान्नुहोस् (Pick Questions)</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>
