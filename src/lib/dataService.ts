@@ -3319,6 +3319,16 @@ class DataService {
 
   saveQuiz(quiz: Quiz, adminEmail = 'admin'): void {
     const quizzes = this.getQuizzes();
+    // If this quiz is marked active, automatically archive all other active quizzes to eliminate confusion
+    if (quiz.status === 'active') {
+      quizzes.forEach(q => {
+        if (q.id !== quiz.id && q.status === 'active') {
+          q.status = 'archived';
+          setDoc(doc(firestoreDb, 'quizzes', q.id), { ...q, status: 'archived' }, { merge: true }).catch(() => {});
+          set(ref(realtimeDb, `quizzes/${q.id}/status`), 'archived').catch(() => {});
+        }
+      });
+    }
     const idx = quizzes.findIndex(q => q.id === quiz.id);
     if (idx >= 0) {
       quizzes[idx] = { ...quiz, updatedAt: new Date().toISOString() };
@@ -3336,7 +3346,7 @@ class DataService {
       adminEmail,
       action: 'क्विज सुरक्षित',
       target: quiz.id,
-      details: `क्विज "${quiz.title}" सुरक्षित गरियो`
+      details: `क्विज "${quiz.title}" सुरक्षित गरियो (${quiz.status === 'active' ? 'सक्रिय' : quiz.status})`
     });
 
     this.notifyListeners();
@@ -3344,7 +3354,13 @@ class DataService {
 
   deleteQuiz(quizId: string, adminEmail = 'admin'): void {
     let quizzes = this.getQuizzes();
+    const wasActive = quizzes.some(q => q.id === quizId && q.status === 'active');
     quizzes = quizzes.filter(q => q.id !== quizId);
+    if (wasActive && quizzes.length > 0) {
+      quizzes[0].status = 'active';
+      setDoc(doc(firestoreDb, 'quizzes', quizzes[0].id), { ...quizzes[0], status: 'active' }, { merge: true }).catch(() => {});
+      set(ref(realtimeDb, `quizzes/${quizzes[0].id}/status`), 'active').catch(() => {});
+    }
     this.setStorage(STORAGE_KEYS.QUIZZES, quizzes);
     deleteDoc(doc(firestoreDb, 'quizzes', quizId)).catch(() => {});
     remove(ref(realtimeDb, `quizzes/${quizId}`)).catch(() => {});

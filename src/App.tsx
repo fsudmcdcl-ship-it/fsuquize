@@ -493,11 +493,22 @@ export default function App() {
     '/winners',
     '/reports',
     '/settings',
-    '/past-questions',
   ];
 
   // Context-aware navigate helper: keeps admin within admin dashboard context after actions
   const navigate = (path: string) => {
+    // If navigating explicitly to student past questions or student routes, never hijack into admin slug
+    if (path === '/past-questions' || path.startsWith('/past-questions/')) {
+      setCurrentPath('/past-questions');
+      try {
+        window.history.pushState({}, '', '/past-questions');
+      } catch {
+        if (typeof window !== 'undefined') window.location.hash = '/past-questions';
+      }
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     const slug = dataService.getAdminSlug() || 'quizemasteradmin';
     const prefix = `/${slug}`;
     const adminActive = Boolean(currentAdmin || dataService.getCurrentAdmin());
@@ -511,7 +522,6 @@ export default function App() {
       adminSubPathsList.some(p => currentPath === p || currentPath.startsWith(`${p}/`));
 
     let targetPath = path;
-
     const cleanSub = path.replace(/^\//, '').split('?')[0].split('#')[0];
     const adminSubKeywords = [
       'dashboard',
@@ -522,7 +532,6 @@ export default function App() {
       'winners',
       'reports',
       'settings',
-      'past-questions',
     ];
     const isAdminSub = adminSubKeywords.includes(cleanSub);
 

@@ -23,7 +23,29 @@ export const AdminQuestions: React.FC<AdminQuestionsProps> = ({ questions, onRef
   const allQuizzes = dataService.getQuizzes();
   const activeQuiz = dataService.getActiveQuiz();
 
-  const [selectedQuizId, setSelectedQuizId] = useState<string>(() => activeQuiz?.id || allQuizzes[0]?.id || 'quiz_week_12');
+  const [selectedQuizId, setSelectedQuizId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
+      const params = new URLSearchParams(search);
+      const qParam = params.get('quizId');
+      if (qParam && allQuizzes.some(q => q.id === qParam)) {
+        return qParam;
+      }
+    }
+    return activeQuiz?.id || allQuizzes[0]?.id || 'quiz_week_12';
+  });
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
+      const params = new URLSearchParams(search);
+      const qParam = params.get('quizId');
+      if (qParam && allQuizzes.some(q => q.id === qParam) && qParam !== selectedQuizId) {
+        setSelectedQuizId(qParam);
+        setSelectedSet(1);
+      }
+    }
+  }, [allQuizzes, selectedQuizId]);
   const [selectedSet, setSelectedSet] = useState<number>(1);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
